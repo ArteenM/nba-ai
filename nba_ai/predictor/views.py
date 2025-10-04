@@ -1,9 +1,17 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-import json
-from .nba_data import get_matchup_data
+from django.conf import settings
+import json, os, joblib
+from .matchup import get_matchup_data
 
+model_path = os.path.join(settings.BASE_DIR, 'nba_predictor_model.pkl')
+try:
+    ml_model = joblib.load(model_path)
+    print(f"ML Model loaded from {model_path}")
+except:
+    ml_model = None
+    print("ML Model not found, using rule-based prediction")
 
 @csrf_exempt
 @require_http_methods(["POST"])

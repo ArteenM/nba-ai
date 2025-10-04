@@ -78,18 +78,18 @@ def setup_current_season():
     print("\n📅 Setting up current season...")
 
     season, created = Season.objects.get_or_create(
-        year='2024-25',
+        year='2025-26',
         defaults={
-            'start_date': datetime(2024, 10, 22).date(),
-            'end_date': datetime(2025, 4, 13).date(),
+            'start_date': datetime(2025, 10, 20).date(),
+            'end_date': datetime(2026, 4, 13).date(),
             'is_current': True
         }
     )
 
     if created:
-        print("✅ Created 2024-25 season")
+        print("✅ Created 2025-26 season")
     else:
-        print("⚪ 2024-25 season already exists")
+        print("⚪ 2025-26 season already exists")
 
     return season
 
