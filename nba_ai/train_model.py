@@ -9,37 +9,47 @@ from predictor.matchup import get_matchup_data  # adjust path as needed
 
 
 def add_matchup_stats(df):
-    # Initialize matchup columns
+    """Calculate matchup stats from the training data itself (no API calls)"""
+    print("Calculating head-to-head records from existing game data...")
+
     df['team1_matchup_wins'] = 0
     df['team2_matchup_wins'] = 0
     df['matchup_total_games'] = 0
 
-    cache = {}
-
+    # For each unique team pair, calculate their h2h record
     for idx, row in df.iterrows():
         team1 = row['team1_abbr']
         team2 = row['team2_abbr']
-        key = (team1, team2)
 
-        if key not in cache:
-            try:
-                cache[key] = get_matchup_data(team1, team2)
-            except Exception as e:
-                print(f"Error fetching matchup for {team1} vs {team2}: {e}")
-                cache[key] = None
+        # Find all games between these two teams
+        matchups = df[
+            ((df['team1_abbr'] == team1) & (df['team2_abbr'] == team2)) |
+            ((df['team1_abbr'] == team2) & (df['team2_abbr'] == team1))
+            ]
 
-        stats = cache[key]
+        team1_wins = 0
+        team2_wins = 0
 
-        if stats:
-            df.at[idx, 'team1_matchup_wins'] = stats['head_to_head']['team1_wins']
-            df.at[idx, 'team2_matchup_wins'] = stats['head_to_head']['team2_wins']
-            df.at[idx, 'matchup_total_games'] = stats['head_to_head']['total_games']
-        else:
-            df.at[idx, 'team1_matchup_wins'] = 0
-            df.at[idx, 'team2_matchup_wins'] = 0
-            df.at[idx, 'matchup_total_games'] = 0
+        for _, game in matchups.iterrows():
+            if game['team1_abbr'] == team1:
+                if game['winner'] == 1:
+                    team1_wins += 1
+                else:
+                    team2_wins += 1
+            else:
+                if game['winner'] == 1:
+                    team2_wins += 1
+                else:
+                    team1_wins += 1
 
-    # Calculate matchup win percentages safely
+        df.at[idx, 'team1_matchup_wins'] = team1_wins
+        df.at[idx, 'team2_matchup_wins'] = team2_wins
+        df.at[idx, 'matchup_total_games'] = len(matchups)
+
+        if idx % 500 == 0:
+            print(f"  Processed {idx}/{len(df)} games...")
+
+    # Calculate matchup win percentages
     df['team1_matchup_win_pct'] = np.where(
         df['matchup_total_games'] > 0,
         df['team1_matchup_wins'] / df['matchup_total_games'],
@@ -101,6 +111,10 @@ if __name__ == "__main__":
         #win streak
 
         'team1_streak', 'team2_streak',
+
+        # Missing stars
+
+        #'missing_stars', 'avg_missing_stars'
     ]
 
     # Extract season stats features

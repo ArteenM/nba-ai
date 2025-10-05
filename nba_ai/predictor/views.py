@@ -61,7 +61,9 @@ def get_team_stats_from_cache(team_abbr):
             'off_reb': latest['team1_off_reb'],
             'def_reb': latest['team1_def_reb'],
             'turnovers': latest['team1_turnovers'],
-            'ast_to_to_ratio': latest['team1_ast_to_to_ratio']
+            'ast_to_to_ratio': latest['team1_ast_to_to_ratio'],
+            'streak': latest['team1_streak'],
+            'days_rest': latest['team1_days_rest']
         }
     else:
         latest = team2_games.iloc[-1]
@@ -79,7 +81,9 @@ def get_team_stats_from_cache(team_abbr):
             'off_reb': latest['team2_off_reb'],
             'def_reb': latest['team2_def_reb'],
             'turnovers': latest['team2_turnovers'],
-            'ast_to_to_ratio': latest['team2_ast_to_to_ratio']
+            'ast_to_to_ratio': latest['team2_ast_to_to_ratio'],
+            'streak': latest['team1_streak'],
+            'days_rest': latest['team1_days_rest']
         }
 
 
@@ -181,7 +185,9 @@ def predict_winner(request):
                 team1_stats['turnovers'], team2_stats['turnovers'],
                 team1_stats['ast_to_to_ratio'], team2_stats['ast_to_to_ratio'],
                 1, 0,  # team1_home, team2_home (assuming neutral for now)
-                team1_b2b, team2_b2b  # back-to-back indicators
+                team1_b2b, team2_b2b,  # back-to-back indicators'
+                team1_stats['days_rest'], team2_stats['days_rest'],
+                team1_stats['streak'], team2_stats['streak'],
             ]
 
             matchup_features = [
