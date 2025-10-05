@@ -116,8 +116,11 @@ def get_head_to_head_from_cache(team1_abbr, team2_abbr):
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_http_methods(["POST", "OPTIONS"])
 def predict_winner(request):
+    # Handle CORS preflight requests
+    if request.method == "OPTIONS":
+        return JsonResponse({}, status=200)
     try:
         data = json.loads(request.body)
         team1 = data.get('team1')
