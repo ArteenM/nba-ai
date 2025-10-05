@@ -3,11 +3,12 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.preprocessing import MinMaxScaler
 import joblib
-from predictor.matchup import get_matchup_data  # adjust import path as needed
+from predictor.matchup import get_matchup_data  # adjust path as needed
 
 def add_matchup_stats(df):
-    # Add columns for matchup data
+    # Initialize matchup columns
     df['team1_matchup_wins'] = 0
     df['team2_matchup_wins'] = 0
     df['matchup_total_games'] = 0
@@ -37,15 +38,20 @@ def add_matchup_stats(df):
             df.at[idx, 'team2_matchup_wins'] = 0
             df.at[idx, 'matchup_total_games'] = 0
 
-    # Create head-to-head win percentages with safe division
-    df['team1_matchup_win_pct'] = np.where(df['matchup_total_games'] > 0,
-                                           df['team1_matchup_wins'] / df['matchup_total_games'],
-                                           0.5)
-    df['team2_matchup_win_pct'] = np.where(df['matchup_total_games'] > 0,
-                                           df['team2_matchup_wins'] / df['matchup_total_games'],
-                                           0.5)
+    # Calculate matchup win percentages safely
+    df['team1_matchup_win_pct'] = np.where(
+        df['matchup_total_games'] > 0,
+        df['team1_matchup_wins'] / df['matchup_total_games'],
+        0.5
+    )
+    df['team2_matchup_win_pct'] = np.where(
+        df['matchup_total_games'] > 0,
+        df['team2_matchup_wins'] / df['matchup_total_games'],
+        0.5
+    )
 
     return df
+
 
 if __name__ == "__main__":
     print("Loading training data...")
@@ -55,14 +61,38 @@ if __name__ == "__main__":
     print("Adding matchup data...")
     df = add_matchup_stats(df)
 
-    # Combine features with 80% weight on season stats, 20% on head-to-head matchup win pct
-    overall_features = df[['team1_win_pct', 'team2_win_pct', 'team1_wins', 'team2_wins',
-                           'team1_losses', 'team2_losses']].values
-    h2h_features = df[['team1_matchup_win_pct', 'team2_matchup_win_pct']].values
+    # List of season stats features to use
+    season_features = [
+        'team1_win_pct', 'team2_win_pct',
+        'team1_wins', 'team2_wins',
+        'team1_losses', 'team2_losses',
+        'team1_recent_win_pct', 'team2_recent_win_pct',
+        'team1_avg_pts', 'team2_avg_pts',
+        'team1_avg_pts_allowed', 'team2_avg_pts_allowed',
+        'team1_fg_pct', 'team2_fg_pct',
+        'team1_fg3_pct', 'team2_fg3_pct',
+        'team1_ft_pct', 'team2_ft_pct',
+        'team1_off_reb', 'team2_off_reb',
+        'team1_def_reb', 'team2_def_reb',
+        'team1_turnovers', 'team2_turnovers',
+        'team1_ast_to_to_ratio', 'team2_ast_to_to_ratio',
+        'team1_home', 'team2_home'
+    ]
 
+    # Extract season stats features
+    X_season = df[season_features].values
+
+    # Normalize season features between 0 and 1
+    scaler = MinMaxScaler()
+    X_season_scaled = scaler.fit_transform(X_season)
+
+    # Extract matchup head-to-head features
+    X_h2h = df[['team1_matchup_win_pct', 'team2_matchup_win_pct']].values
+
+    # Combine with weighted scheme: 90% season stats, 10% matchup stats
     X = np.hstack([
-        overall_features * 0.8,
-        h2h_features * 0.2
+        X_season_scaled * 0.9,
+        X_h2h * 0.1
     ])
 
     y = df['winner'].values
