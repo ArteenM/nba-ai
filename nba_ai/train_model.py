@@ -7,6 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 import joblib
 from predictor.matchup import get_matchup_data  # adjust path as needed
 
+
 def add_matchup_stats(df):
     # Initialize matchup columns
     df['team1_matchup_wins'] = 0
@@ -60,37 +61,46 @@ if __name__ == "__main__":
 
     print("Adding matchup data...")
     df = add_matchup_stats(df)
-    
 
     # List of season stats features to use
     season_features = [
         # Win/Loss
-        'team1_win_pct', 'team2_win_pct', #'win_pct_diff',
-        'team1_wins', 'team2_wins', #'wins_diff', #'wins_diff',
-        'team1_losses', 'team2_losses', #'losses_diff', #'losses_diff',
+        'team1_win_pct', 'team2_win_pct',
+        'team1_wins', 'team2_wins',
+        'team1_losses', 'team2_losses',
 
         # Recent performance
-        'team1_recent_win_pct', 'team2_recent_win_pct', #'recent_win_pct_diff',
+        'team1_recent_win_pct', 'team2_recent_win_pct',
 
         # Scoring
-        'team1_avg_pts', 'team2_avg_pts', #'avg_pts_diff',
-        'team1_avg_pts_allowed', 'team2_avg_pts_allowed', #'avg_pts_allowed_diff',
+        'team1_avg_pts', 'team2_avg_pts',
+        'team1_avg_pts_allowed', 'team2_avg_pts_allowed',
 
         # Shooting
-        'team1_fg_pct', 'team2_fg_pct', #'fg_pct_diff',
-        'team1_fg3_pct', 'team2_fg3_pct', #'fg3_pct_diff',
-        'team1_ft_pct', 'team2_ft_pct', #'ft_pct_diff',
+        'team1_fg_pct', 'team2_fg_pct',
+        'team1_fg3_pct', 'team2_fg3_pct',
+        'team1_ft_pct', 'team2_ft_pct',
 
         # Rebounding
-        'team1_off_reb', 'team2_off_reb', #'off_reb_diff',
-        'team1_def_reb', 'team2_def_reb', #'def_reb_diff',
+        'team1_off_reb', 'team2_off_reb',
+        'team1_def_reb', 'team2_def_reb',
 
         # Ball control
-        'team1_turnovers', 'team2_turnovers', #'turnovers_diff',
-        'team1_ast_to_to_ratio', 'team2_ast_to_to_ratio', #'ast_to_to_ratio_diff',
+        'team1_turnovers', 'team2_turnovers',
+        'team1_ast_to_to_ratio', 'team2_ast_to_to_ratio',
 
         # Home/Away
-        'team1_home', 'team2_home'
+        'team1_home', 'team2_home',
+
+        # Back-to-back
+        'team1_back_to_back', 'team2_back_to_back',
+
+        #rest days
+        'team1_days_rest', 'team2_days_rest',
+
+        #win streak
+
+        'team1_streak', 'team2_streak',
     ]
 
     # Extract season stats features
@@ -126,6 +136,8 @@ if __name__ == "__main__":
     print("\nClassification Report:")
     print(classification_report(y_test, y_pred))
 
-    print("\nSaving model...")
+    print("\nSaving model and scaler...")
     joblib.dump(model, 'nba_predictor_model.pkl')
+    joblib.dump(scaler, 'nba_scaler.pkl')  # Save scaler too
     print("Model saved to nba_predictor_model.pkl")
+    print("Scaler saved to nba_scaler.pkl")

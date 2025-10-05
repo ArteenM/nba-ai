@@ -8,7 +8,7 @@ import joblib
 import os
 from django.conf import settings
 
-# Load cached training data and model once when server starts
+# Load cached training data, model, and scaler once when server starts
 try:
     training_data = pd.read_csv('nba_training_data.csv')
     print(f"Loaded {len(training_data)} cached games")
@@ -22,6 +22,13 @@ try:
 except:
     model = None
     print("ML Model not found")
+
+try:
+    scaler = joblib.load('nba_scaler.pkl')
+    print("Scaler loaded successfully")
+except:
+    scaler = None
+    print("Scaler not found")
 
 
 def get_team_stats_from_cache(team_abbr):
@@ -115,6 +122,18 @@ def get_head_to_head_from_cache(team1_abbr, team2_abbr):
     }
 
 
+def convert_to_python(obj):
+    """Convert numpy types to Python types for JSON serialization"""
+    if isinstance(obj, dict):
+        return {k: convert_to_python(v) for k, v in obj.items()}
+    elif isinstance(obj, (np.integer, np.int64)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64)):
+        return float(obj)
+    else:
+        return obj
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def predict_winner(request):
@@ -122,6 +141,10 @@ def predict_winner(request):
         data = json.loads(request.body)
         team1 = data.get('team1')
         team2 = data.get('team2')
+
+        # Optional: accept back-to-back indicators from frontend
+        team1_b2b = data.get('team1_back_to_back', 0)
+        team2_b2b = data.get('team2_back_to_back', 0)
 
         if not team1 or not team2:
             return JsonResponse({'error': 'Both teams required'}, status=400)
@@ -137,22 +160,12 @@ def predict_winner(request):
         h2h = get_head_to_head_from_cache(team1, team2)
 
         # Convert all numpy types to Python types
-        def convert_to_python(obj):
-            if isinstance(obj, dict):
-                return {k: convert_to_python(v) for k, v in obj.items()}
-            elif isinstance(obj, (np.integer, np.int64)):
-                return int(obj)
-            elif isinstance(obj, (np.floating, np.float64)):
-                return float(obj)
-            else:
-                return obj
-
         team1_stats = convert_to_python(team1_stats)
         team2_stats = convert_to_python(team2_stats)
         h2h = convert_to_python(h2h)
 
-        if model:
-            # Build feature array
+        if model and scaler:
+            # Build feature array exactly as model expects
             season_features = [
                 team1_stats['win_pct'], team2_stats['win_pct'],
                 team1_stats['wins'], team2_stats['wins'],
@@ -167,7 +180,8 @@ def predict_winner(request):
                 team1_stats['def_reb'], team2_stats['def_reb'],
                 team1_stats['turnovers'], team2_stats['turnovers'],
                 team1_stats['ast_to_to_ratio'], team2_stats['ast_to_to_ratio'],
-                1, 0
+                1, 0,  # team1_home, team2_home (assuming neutral for now)
+                team1_b2b, team2_b2b  # back-to-back indicators
             ]
 
             matchup_features = [
@@ -175,11 +189,17 @@ def predict_winner(request):
                 h2h['team2_win_pct']
             ]
 
-            X = np.hstack([
-                np.array(season_features) * 0.9,
-                np.array(matchup_features) * 0.1
-            ]).reshape(1, -1)
+            # Scale season features
+            season_features_array = np.array(season_features).reshape(1, -1)
+            season_features_scaled = scaler.transform(season_features_array)
 
+            # Combine with same weighting as training (0.9 season, 0.1 matchup)
+            X = np.hstack([
+                season_features_scaled * 0.9,
+                np.array(matchup_features).reshape(1, -1) * 0.1
+            ])
+
+            # Predict
             prediction = model.predict(X)[0]
             probabilities = model.predict_proba(X)[0]
 
@@ -197,6 +217,7 @@ def predict_winner(request):
                 'head_to_head': h2h
             })
         else:
+            # Fallback to simple logic
             winner = team1 if team1_stats['win_pct'] > team2_stats['win_pct'] else team2
             confidence = abs(team1_stats['win_pct'] - team2_stats['win_pct']) * 100
 
