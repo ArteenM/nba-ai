@@ -60,22 +60,36 @@ if __name__ == "__main__":
 
     print("Adding matchup data...")
     df = add_matchup_stats(df)
+    
 
     # List of season stats features to use
     season_features = [
-        'team1_win_pct', 'team2_win_pct',
-        'team1_wins', 'team2_wins',
-        'team1_losses', 'team2_losses',
-        'team1_recent_win_pct', 'team2_recent_win_pct',
-        'team1_avg_pts', 'team2_avg_pts',
-        'team1_avg_pts_allowed', 'team2_avg_pts_allowed',
-        'team1_fg_pct', 'team2_fg_pct',
-        'team1_fg3_pct', 'team2_fg3_pct',
-        'team1_ft_pct', 'team2_ft_pct',
-        'team1_off_reb', 'team2_off_reb',
-        'team1_def_reb', 'team2_def_reb',
-        'team1_turnovers', 'team2_turnovers',
-        'team1_ast_to_to_ratio', 'team2_ast_to_to_ratio',
+        # Win/Loss
+        'team1_win_pct', 'team2_win_pct', #'win_pct_diff',
+        'team1_wins', 'team2_wins', #'wins_diff', #'wins_diff',
+        'team1_losses', 'team2_losses', #'losses_diff', #'losses_diff',
+
+        # Recent performance
+        'team1_recent_win_pct', 'team2_recent_win_pct', #'recent_win_pct_diff',
+
+        # Scoring
+        'team1_avg_pts', 'team2_avg_pts', #'avg_pts_diff',
+        'team1_avg_pts_allowed', 'team2_avg_pts_allowed', #'avg_pts_allowed_diff',
+
+        # Shooting
+        'team1_fg_pct', 'team2_fg_pct', #'fg_pct_diff',
+        'team1_fg3_pct', 'team2_fg3_pct', #'fg3_pct_diff',
+        'team1_ft_pct', 'team2_ft_pct', #'ft_pct_diff',
+
+        # Rebounding
+        'team1_off_reb', 'team2_off_reb', #'off_reb_diff',
+        'team1_def_reb', 'team2_def_reb', #'def_reb_diff',
+
+        # Ball control
+        'team1_turnovers', 'team2_turnovers', #'turnovers_diff',
+        'team1_ast_to_to_ratio', 'team2_ast_to_to_ratio', #'ast_to_to_ratio_diff',
+
+        # Home/Away
         'team1_home', 'team2_home'
     ]
 

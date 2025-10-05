@@ -70,6 +70,8 @@ def collect_all_games_efficient(seasons=['2022-23', '2023-24', '2024-25']):
             avg_assists = safe_mean(team_games, 'AST')
             assist_turnover_ratio = avg_assists / avg_turnovers if avg_turnovers > 0 else 0
 
+            back_to_back = team_games.sort_values('TEAM_ABBREVIATION', ascending=False).head(2)
+            print(back_to_back)
 
             team_stats[team_abbr] = {
                 'wins': wins,
@@ -145,6 +147,24 @@ def collect_all_games_efficient(seasons=['2022-23', '2023-24', '2024-25']):
                 'team2_turnovers': team2_stats['avg_turnovers'],
                 'team2_ast_to_to_ratio': team2_stats['assist_turnover_ratio'],
                 'team2_home': team2_home,
+
+                # All the differences (only doing 6 for now).
+                # Dropped accuracy by a full percent.
+
+                # 'win_pct_diff': team1_stats['win_pct'] - team2_stats['win_pct'],
+                # 'wins_diff': team1_stats['wins'] - team2_stats['wins'],
+                # 'losses_diff': team1_stats['losses'] - team2_stats['losses'],
+                # 'recent_win_pct_diff': team1_stats['recent_win_pct'] - team2_stats['recent_win_pct'],
+                # 'avg_pts_diff': team1_stats['avg_pts'] - team2_stats['avg_pts'],
+                # 'avg_pts_allowed_diff': team1_stats['avg_pts_allowed'] - team2_stats['avg_pts_allowed'],
+                # 'fg_pct_diff': team1_stats['avg_fg_pct'] - team2_stats['avg_fg_pct'],
+                # 'fg3_pct_diff': team1_stats['avg_fg3_pct'] - team2_stats['avg_fg3_pct'],
+                # 'ft_pct_diff': team1_stats['avg_ft_pct'] - team2_stats['avg_ft_pct'],
+                # 'off_reb_diff': team1_stats['avg_off_reb'] - team2_stats['avg_off_reb'],
+                # 'def_reb_diff': team1_stats['avg_def_reb'] - team2_stats['avg_def_reb'],
+                # 'turnovers_diff': team1_stats['avg_turnovers'] - team2_stats['avg_turnovers'],
+                # 'ast_to_to_ratio_diff': team1_stats['assist_turnover_ratio'] - team2_stats['assist_turnover_ratio'],
+
 
                 'team1_score': int(team1['PTS']),
                 'team2_score': int(team2['PTS']),
