@@ -26,7 +26,7 @@ def calculate_streak(games_sorted):
     return streak if last_result == 'W' else -streak
 
 
-def collect_all_games_efficient(seasons=['2022-23', '2023-24', '2024-25']):
+def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
     """Efficiently collect all game data with extended stats"""
 
     all_training_data = []
@@ -92,11 +92,10 @@ def collect_all_games_efficient(seasons=['2022-23', '2023-24', '2024-25']):
             avg_assists = safe_mean(team_games, 'AST')
             assist_turnover_ratio = avg_assists / avg_turnovers if avg_turnovers > 0 else 0
 
-            # Calculate back-to-backs and rest days
+            # Calculate back-to-backs
             team_games['days_since_last_game'] = team_games['GAME_DATE'].diff().dt.days
             back_to_back_count = (team_games['days_since_last_game'] == 1).sum()
             back_to_back_pct = back_to_back_count / len(team_games) if len(team_games) > 0 else 0
-            avg_days_rest = team_games['days_since_last_game'].mean()
 
             # Calculate current streak
             current_streak = calculate_streak(team_games)
@@ -117,7 +116,6 @@ def collect_all_games_efficient(seasons=['2022-23', '2023-24', '2024-25']):
                 'assist_turnover_ratio': assist_turnover_ratio,
                 'back_to_back_count': back_to_back_count,
                 'back_to_back_pct': back_to_back_pct,
-                'avg_days_rest': avg_days_rest,
                 'current_streak': current_streak,
             }
 
