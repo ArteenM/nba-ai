@@ -103,6 +103,47 @@ export interface ScheduleData {
   leagueSchedule: LeagueSchedule;
 }
 
+export interface TeamStats {
+  abbreviation: string;
+  win_pct: number;
+  wins: number;
+  losses: number;
+  recent_win_pct: number;
+  avg_pts: number;
+  avg_pts_allowed: number;
+  fg_pct: number;
+  fg3_pct: number;
+  ft_pct: number;
+  off_reb: number;
+  def_reb: number;
+  turnovers: number;
+  ast_to_to_ratio: number;
+}
+
+export interface HeadToHead {
+  team1_wins: number;
+  team2_wins: number;
+  total: number;
+  team1_win_pct: number;
+  team2_win_pct: number;
+}
+
+export interface PredictionResult {
+  winner: string;
+  confidence: number;
+  model_type: 'ML' | 'rule-based';
+  team1_win_probability?: number;
+  team2_win_probability?: number;
+  team1_stats: TeamStats;
+  team2_stats: TeamStats;
+  head_to_head: HeadToHead;
+}
+
+export interface PredictionRequest {
+  team1: string;
+  team2: string;
+}
+
 export interface AppState {
   selectedDate: string; // YYYY-MM-DD format
   setSelectedDate: (date: string) => void;

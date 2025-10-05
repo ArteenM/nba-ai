@@ -1,10 +1,17 @@
 import { Game } from '@/types';
+import { useRouter } from 'next/navigation';
 
 interface GameCardProps {
   game: Game;
 }
 
 export default function GameCard({ game }: GameCardProps) {
+  const router = useRouter();
+
+  const handleGameClick = () => {
+    // Navigate to prediction page
+    router.push(`/prediction/${game.homeTeam.teamTricode}/${game.awayTeam.teamTricode}`);
+  };
   const formatGameTime = (dateTimeUTC: string) => {
     const date = new Date(dateTimeUTC);
     return date.toLocaleTimeString('en-US', {
@@ -29,7 +36,10 @@ export default function GameCard({ game }: GameCardProps) {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-200">
+    <div 
+      className="bg-white rounded-lg shadow-md border border-gray-200 p-6 hover:shadow-lg transition-shadow duration-200 cursor-pointer"
+      onClick={handleGameClick}
+    >
       {/* Game Status */}
       <div className="text-center mb-4">
         <span className={`text-sm font-medium ${getGameStatusColor(game.gameStatus)}`}>
@@ -113,9 +123,17 @@ export default function GameCard({ game }: GameCardProps) {
 
       {/* Arena Info */}
       <div className="mt-4 pt-4 border-t border-gray-100">
-        <div className="text-center text-xs text-gray-500">
+        <div className="text-center text-xs text-gray-500 mb-3">
           {game.arenaName}
           {game.arenaCity && ` • ${game.arenaCity}`}
+        </div>
+        <div className="text-center">
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            Predict Winner
+          </span>
         </div>
       </div>
     </div>
