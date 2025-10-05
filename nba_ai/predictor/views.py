@@ -1,17 +1,119 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+import json
+import pandas as pd
+import numpy as np
+import joblib
+import os
 from django.conf import settings
-import json, os, joblib
-from .matchup import get_matchup_data
 
-model_path = os.path.join(settings.BASE_DIR, 'nba_predictor_model.pkl')
+# Load cached training data and model once when server starts
 try:
-    ml_model = joblib.load(model_path)
-    print(f"ML Model loaded from {model_path}")
+    training_data = pd.read_csv('nba_training_data.csv')
+    print(f"Loaded {len(training_data)} cached games")
 except:
-    ml_model = None
-    print("ML Model not found, using rule-based prediction")
+    training_data = None
+    print("No cached training data found")
+
+try:
+    model = joblib.load('nba_predictor_model.pkl')
+    print("ML Model loaded successfully")
+except:
+    model = None
+    print("ML Model not found")
+
+
+def get_team_stats_from_cache(team_abbr):
+    """Get team stats from cached data instead of API"""
+    if training_data is None:
+        return None
+
+    # Get all games where this team was team1
+    team1_games = training_data[training_data['team1_abbr'] == team_abbr]
+    # Get all games where this team was team2
+    team2_games = training_data[training_data['team2_abbr'] == team_abbr]
+
+    if team1_games.empty and team2_games.empty:
+        return None
+
+    # Use the most recent season data (last row)
+    if not team1_games.empty:
+        latest = team1_games.iloc[-1]
+        return {
+            'abbreviation': team_abbr,
+            'win_pct': latest['team1_win_pct'],
+            'wins': latest['team1_wins'],
+            'losses': latest['team1_losses'],
+            'recent_win_pct': latest['team1_recent_win_pct'],
+            'avg_pts': latest['team1_avg_pts'],
+            'avg_pts_allowed': latest['team1_avg_pts_allowed'],
+            'fg_pct': latest['team1_fg_pct'],
+            'fg3_pct': latest['team1_fg3_pct'],
+            'ft_pct': latest['team1_ft_pct'],
+            'off_reb': latest['team1_off_reb'],
+            'def_reb': latest['team1_def_reb'],
+            'turnovers': latest['team1_turnovers'],
+            'ast_to_to_ratio': latest['team1_ast_to_to_ratio']
+        }
+    else:
+        latest = team2_games.iloc[-1]
+        return {
+            'abbreviation': team_abbr,
+            'win_pct': latest['team2_win_pct'],
+            'wins': latest['team2_wins'],
+            'losses': latest['team2_losses'],
+            'recent_win_pct': latest['team2_recent_win_pct'],
+            'avg_pts': latest['team2_avg_pts'],
+            'avg_pts_allowed': latest['team2_avg_pts_allowed'],
+            'fg_pct': latest['team2_fg_pct'],
+            'fg3_pct': latest['team2_fg3_pct'],
+            'ft_pct': latest['team2_ft_pct'],
+            'off_reb': latest['team2_off_reb'],
+            'def_reb': latest['team2_def_reb'],
+            'turnovers': latest['team2_turnovers'],
+            'ast_to_to_ratio': latest['team2_ast_to_to_ratio']
+        }
+
+
+def get_head_to_head_from_cache(team1_abbr, team2_abbr):
+    """Get head-to-head record from cached data"""
+    if training_data is None:
+        return {'team1_wins': 0, 'team2_wins': 0, 'total': 0}
+
+    # Find all games between these teams
+    matchups = training_data[
+        ((training_data['team1_abbr'] == team1_abbr) & (training_data['team2_abbr'] == team2_abbr)) |
+        ((training_data['team1_abbr'] == team2_abbr) & (training_data['team2_abbr'] == team1_abbr))
+        ]
+
+    if matchups.empty:
+        return {'team1_wins': 0, 'team2_wins': 0, 'total': 0}
+
+    team1_wins = 0
+    team2_wins = 0
+
+    for _, game in matchups.iterrows():
+        if game['team1_abbr'] == team1_abbr:
+            if game['winner'] == 1:
+                team1_wins += 1
+            else:
+                team2_wins += 1
+        else:
+            if game['winner'] == 1:
+                team2_wins += 1
+            else:
+                team1_wins += 1
+
+    total = len(matchups)
+    return {
+        'team1_wins': team1_wins,
+        'team2_wins': team2_wins,
+        'total': total,
+        'team1_win_pct': team1_wins / total if total > 0 else 0.5,
+        'team2_win_pct': team2_wins / total if total > 0 else 0.5
+    }
+
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -24,57 +126,88 @@ def predict_winner(request):
         if not team1 or not team2:
             return JsonResponse({'error': 'Both teams required'}, status=400)
 
-        # Fetch matchup data
-        matchup_data = get_matchup_data(team1, team2)
+        # Get stats from cache
+        team1_stats = get_team_stats_from_cache(team1)
+        team2_stats = get_team_stats_from_cache(team2)
 
-        if not matchup_data:
-            return JsonResponse({'error': 'Could not fetch data'}, status=500)
+        if not team1_stats or not team2_stats:
+            return JsonResponse({'error': 'Team data not found in cache'}, status=404)
 
-        # Simple prediction logic
-        team1_win_pct = matchup_data['team1']['win_percentage']
-        team2_win_pct = matchup_data['team2']['win_percentage']
-        team1_h2h = matchup_data['head_to_head']['team1_wins']
-        team2_h2h = matchup_data['head_to_head']['team2_wins']
+        # Get head-to-head
+        h2h = get_head_to_head_from_cache(team1, team2)
 
-        # Weight: 70% overall record, 30% head-to-head
-        team1_score = (team1_win_pct * 0.7) + ((team1_h2h / (team1_h2h + team2_h2h + 0.01)) * 0.3)
-        team2_score = (team2_win_pct * 0.7) + ((team2_h2h / (team1_h2h + team2_h2h + 0.01)) * 0.3)
+        # Convert all numpy types to Python types
+        def convert_to_python(obj):
+            if isinstance(obj, dict):
+                return {k: convert_to_python(v) for k, v in obj.items()}
+            elif isinstance(obj, (np.integer, np.int64)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float64)):
+                return float(obj)
+            else:
+                return obj
 
-        winner = team1 if team1_score > team2_score else team2
-        confidence = abs(team1_score - team2_score) * 100
+        team1_stats = convert_to_python(team1_stats)
+        team2_stats = convert_to_python(team2_stats)
+        h2h = convert_to_python(h2h)
 
-        return JsonResponse({
-            'winner': winner,
-            'confidence': round(confidence, 1),
-            'matchup_data': matchup_data
-        })
+        if model:
+            # Build feature array
+            season_features = [
+                team1_stats['win_pct'], team2_stats['win_pct'],
+                team1_stats['wins'], team2_stats['wins'],
+                team1_stats['losses'], team2_stats['losses'],
+                team1_stats['recent_win_pct'], team2_stats['recent_win_pct'],
+                team1_stats['avg_pts'], team2_stats['avg_pts'],
+                team1_stats['avg_pts_allowed'], team2_stats['avg_pts_allowed'],
+                team1_stats['fg_pct'], team2_stats['fg_pct'],
+                team1_stats['fg3_pct'], team2_stats['fg3_pct'],
+                team1_stats['ft_pct'], team2_stats['ft_pct'],
+                team1_stats['off_reb'], team2_stats['off_reb'],
+                team1_stats['def_reb'], team2_stats['def_reb'],
+                team1_stats['turnovers'], team2_stats['turnovers'],
+                team1_stats['ast_to_to_ratio'], team2_stats['ast_to_to_ratio'],
+                1, 0
+            ]
 
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
-@csrf_exempt
-@require_http_methods(["POST"])
-def get_team_matchup(request):
-    """Get 3 seasons of data for two teams"""
-    try:
-        data = json.loads(request.body)
-        team1 = data.get('team1')
-        team2 = data.get('team2')
+            matchup_features = [
+                h2h['team1_win_pct'],
+                h2h['team2_win_pct']
+            ]
 
-        if not team1 or not team2:
-            return JsonResponse({'error': 'Both teams required'}, status=400)
+            X = np.hstack([
+                np.array(season_features) * 0.9,
+                np.array(matchup_features) * 0.1
+            ]).reshape(1, -1)
 
-        if team1 == team2:
-            return JsonResponse({'error': 'Please select different teams'}, status=400)
+            prediction = model.predict(X)[0]
+            probabilities = model.predict_proba(X)[0]
 
-        # Fetch data from NBA API
-        matchup_data = get_matchup_data(team1, team2)
+            winner = team1 if prediction == 1 else team2
+            confidence = float(max(probabilities) * 100)
 
-        if not matchup_data:
-            return JsonResponse({'error': 'Could not fetch team data'}, status=500)
+            return JsonResponse({
+                'winner': winner,
+                'confidence': round(confidence, 1),
+                'model_type': 'ML',
+                'team1_win_probability': round(float(probabilities[1]) * 100, 1),
+                'team2_win_probability': round(float(probabilities[0]) * 100, 1),
+                'team1_stats': team1_stats,
+                'team2_stats': team2_stats,
+                'head_to_head': h2h
+            })
+        else:
+            winner = team1 if team1_stats['win_pct'] > team2_stats['win_pct'] else team2
+            confidence = abs(team1_stats['win_pct'] - team2_stats['win_pct']) * 100
 
-        return JsonResponse(matchup_data)
+            return JsonResponse({
+                'winner': winner,
+                'confidence': round(float(confidence), 1),
+                'model_type': 'rule-based',
+                'team1_stats': team1_stats,
+                'team2_stats': team2_stats,
+                'head_to_head': h2h
+            })
 
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
