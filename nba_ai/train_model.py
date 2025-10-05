@@ -5,7 +5,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import MinMaxScaler
 import joblib
-from predictor.matchup import get_matchup_data  # adjust path as needed
 
 
 def add_matchup_stats(df):
@@ -72,6 +71,16 @@ if __name__ == "__main__":
     print("Adding matchup data...")
     df = add_matchup_stats(df)
 
+    # Add interaction features
+    print("Creating interaction features...")
+    df['win_pct_diff'] = df['team1_win_pct'] - df['team2_win_pct']
+    df['pts_differential'] = (df['team1_avg_pts'] - df['team1_avg_pts_allowed']) - (
+                df['team2_avg_pts'] - df['team2_avg_pts_allowed'])
+    df['rest_advantage'] = df['team1_days_rest'] - df['team2_days_rest']
+    df['streak_momentum'] = df['team1_streak'] - df['team2_streak']
+    df['fg_pct_diff'] = df['team1_fg_pct'] - df['team2_fg_pct']
+    df['three_pct_diff'] = df['team1_fg3_pct'] - df['team2_fg3_pct']
+
     # List of season stats features to use
     season_features = [
         # Win/Loss
@@ -102,19 +111,20 @@ if __name__ == "__main__":
         # Home/Away
         'team1_home', 'team2_home',
 
-        # Back-to-back
+        # Back-to-back & rest
         'team1_back_to_back', 'team2_back_to_back',
-
-        #rest days
         'team1_days_rest', 'team2_days_rest',
 
-        #win streak
-
+        # Streak
         'team1_streak', 'team2_streak',
 
-        # Missing stars
-
-        #'missing_stars', 'avg_missing_stars'
+        # Interaction features
+        'win_pct_diff',
+        'pts_differential',
+        'rest_advantage',
+        'streak_momentum',
+        'fg_pct_diff',
+        'three_pct_diff',
     ]
 
     # Extract season stats features
@@ -139,7 +149,7 @@ if __name__ == "__main__":
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     print("\nTraining model...")
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model = RandomForestClassifier(n_estimators=200, max_depth=20, random_state=42)
     model.fit(X_train, y_train)
 
     print("\nEvaluating model...")
@@ -152,6 +162,6 @@ if __name__ == "__main__":
 
     print("\nSaving model and scaler...")
     joblib.dump(model, 'nba_predictor_model.pkl')
-    joblib.dump(scaler, 'nba_scaler.pkl')  # Save scaler too
+    joblib.dump(scaler, 'nba_scaler.pkl')
     print("Model saved to nba_predictor_model.pkl")
     print("Scaler saved to nba_scaler.pkl")
