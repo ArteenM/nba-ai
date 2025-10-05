@@ -36,15 +36,12 @@ def get_team_stats_from_cache(team_abbr):
     if training_data is None:
         return None
 
-    # Get all games where this team was team1
     team1_games = training_data[training_data['team1_abbr'] == team_abbr]
-    # Get all games where this team was team2
     team2_games = training_data[training_data['team2_abbr'] == team_abbr]
 
     if team1_games.empty and team2_games.empty:
         return None
 
-    # Use the most recent season data (last row)
     if not team1_games.empty:
         latest = team1_games.iloc[-1]
         return {
@@ -82,8 +79,8 @@ def get_team_stats_from_cache(team_abbr):
             'def_reb': latest['team2_def_reb'],
             'turnovers': latest['team2_turnovers'],
             'ast_to_to_ratio': latest['team2_ast_to_to_ratio'],
-            'streak': latest['team1_streak'],
-            'days_rest': latest['team1_days_rest']
+            'streak': latest['team2_streak'],
+            'days_rest': latest['team2_days_rest']
         }
 
 
@@ -92,7 +89,6 @@ def get_head_to_head_from_cache(team1_abbr, team2_abbr):
     if training_data is None:
         return {'team1_wins': 0, 'team2_wins': 0, 'total': 0}
 
-    # Find all games between these teams
     matchups = training_data[
         ((training_data['team1_abbr'] == team1_abbr) & (training_data['team2_abbr'] == team2_abbr)) |
         ((training_data['team1_abbr'] == team2_abbr) & (training_data['team2_abbr'] == team1_abbr))
@@ -145,31 +141,35 @@ def predict_winner(request):
         data = json.loads(request.body)
         team1 = data.get('team1')
         team2 = data.get('team2')
-
-        # Optional: accept back-to-back indicators from frontend
         team1_b2b = data.get('team1_back_to_back', 0)
         team2_b2b = data.get('team2_back_to_back', 0)
 
         if not team1 or not team2:
             return JsonResponse({'error': 'Both teams required'}, status=400)
 
-        # Get stats from cache
         team1_stats = get_team_stats_from_cache(team1)
         team2_stats = get_team_stats_from_cache(team2)
 
         if not team1_stats or not team2_stats:
             return JsonResponse({'error': 'Team data not found in cache'}, status=404)
 
-        # Get head-to-head
         h2h = get_head_to_head_from_cache(team1, team2)
 
-        # Convert all numpy types to Python types
         team1_stats = convert_to_python(team1_stats)
         team2_stats = convert_to_python(team2_stats)
         h2h = convert_to_python(h2h)
 
         if model and scaler:
-            # Build feature array exactly as model expects
+            # Calculate interaction features
+            win_pct_diff = team1_stats['win_pct'] - team2_stats['win_pct']
+            pts_differential = (team1_stats['avg_pts'] - team1_stats['avg_pts_allowed']) - \
+                               (team2_stats['avg_pts'] - team2_stats['avg_pts_allowed'])
+            rest_advantage = team1_stats['days_rest'] - team2_stats['days_rest']
+            streak_momentum = team1_stats['streak'] - team2_stats['streak']
+            fg_pct_diff = team1_stats['fg_pct'] - team2_stats['fg_pct']
+            three_pct_diff = team1_stats['fg3_pct'] - team2_stats['fg3_pct']
+
+            # Build feature array with ALL features (must match training order exactly)
             season_features = [
                 team1_stats['win_pct'], team2_stats['win_pct'],
                 team1_stats['wins'], team2_stats['wins'],
@@ -184,10 +184,17 @@ def predict_winner(request):
                 team1_stats['def_reb'], team2_stats['def_reb'],
                 team1_stats['turnovers'], team2_stats['turnovers'],
                 team1_stats['ast_to_to_ratio'], team2_stats['ast_to_to_ratio'],
-                1, 0,  # team1_home, team2_home (assuming neutral for now)
-                team1_b2b, team2_b2b,  # back-to-back indicators'
+                1, 0,  # team1_home, team2_home
+                team1_b2b, team2_b2b,
                 team1_stats['days_rest'], team2_stats['days_rest'],
                 team1_stats['streak'], team2_stats['streak'],
+                # Interaction features
+                win_pct_diff,
+                pts_differential,
+                rest_advantage,
+                streak_momentum,
+                fg_pct_diff,
+                three_pct_diff,
             ]
 
             matchup_features = [
@@ -195,17 +202,14 @@ def predict_winner(request):
                 h2h['team2_win_pct']
             ]
 
-            # Scale season features
             season_features_array = np.array(season_features).reshape(1, -1)
             season_features_scaled = scaler.transform(season_features_array)
 
-            # Combine with same weighting as training (0.9 season, 0.1 matchup)
             X = np.hstack([
                 season_features_scaled * 0.9,
                 np.array(matchup_features).reshape(1, -1) * 0.1
             ])
 
-            # Predict
             prediction = model.predict(X)[0]
             probabilities = model.predict_proba(X)[0]
 
@@ -223,7 +227,6 @@ def predict_winner(request):
                 'head_to_head': h2h
             })
         else:
-            # Fallback to simple logic
             winner = team1 if team1_stats['win_pct'] > team2_stats['win_pct'] else team2
             confidence = abs(team1_stats['win_pct'] - team2_stats['win_pct']) * 100
 
