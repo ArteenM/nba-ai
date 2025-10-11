@@ -118,6 +118,9 @@ if __name__ == "__main__":
         # Streak
         'team1_streak', 'team2_streak',
 
+        # missing starters :D
+        'team1_missing_starters', 'team2_missing_starters',
+
         # Interaction features
         'win_pct_diff',
         'pts_differential',

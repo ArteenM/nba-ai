@@ -1,12 +1,48 @@
-from nba_api.stats.endpoints import leaguegamelog
+from nba_api.stats.endpoints import leaguegamelog, playergamelogs, playergamelog
+from nba_api.stats.static import teams as static_teams, players
 import pandas as pd
 import numpy as np
 import time
 
-
 def safe_mean(df, col):
     """Return mean of column if exists, else 0"""
     return df[col].mean() if col in df.columns else 0
+
+def get_main_lineup_by_minutes(logs, team_id, season='2024-25'):
+    # 1️⃣ Get all player game logs for the season (one API call)
+    df = logs.get_data_frames()[0]
+
+    # 2️⃣ Filter for team
+    team_df = df[df['TEAM_ID'] == team_id]
+
+    # 3️⃣ Make sure MIN is numeric (some rows might be empty strings)
+    team_df = team_df[team_df['MIN'] != '']
+    team_df['MIN'] = pd.to_numeric(team_df['MIN'])
+
+    # 4️⃣ Aggregate total minutes played per player
+    minutes_summary = (
+        team_df.groupby('PLAYER_NAME', as_index=False)['MIN']
+        .sum()
+        .sort_values('MIN', ascending=False)
+    )
+
+    # 5️⃣ Convert top 5 players to list of dicts
+    minutes_list = minutes_summary.head(5).to_dict(orient='records')
+
+
+    return minutes_list
+
+def player_missed_game(player_log_df, game_id):
+    
+    player_log_df['Game_ID'] = player_log_df['Game_ID'].astype(str)
+    game_id = str(game_id)
+
+    game_stats = player_log_df[player_log_df['Game_ID'] == game_id]
+
+    if game_stats.empty:
+        return True  # Did not appear
+    minutes = pd.to_numeric(game_stats.iloc[0]['MIN'], errors='coerce') or 0
+    return minutes == 0  # Appeared but played 0 mins
 
 
 def calculate_streak(games_sorted):
@@ -26,10 +62,19 @@ def calculate_streak(games_sorted):
     return streak if last_result == 'W' else -streak
 
 
-def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
-    """Efficiently collect all game data with extended stats"""
+def get_team_id(team_abbr):
+    """Get NBA team ID from abbreviation"""
+    nba_teams = static_teams.get_teams()
+    team = [t for t in nba_teams if t['abbreviation'] == team_abbr]
+    if team:
+        return team[0]['id']
+    return None
 
+
+def collect_all_games_efficient(seasons=['2024-25']):
+    """Efficiently collect all game data with extended stats"""
     all_training_data = []
+    logs = playergamelogs.PlayerGameLogs(season_nullable=seasons)
 
     for season in seasons:
         print(f"\n{'=' * 50}")
@@ -39,6 +84,7 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
         try:
             gamelog = leaguegamelog.LeagueGameLog(season=season)
             games_df = gamelog.get_data_frames()[0]
+
         except Exception as e:
             print(f"Error fetching data: {e}")
             continue
@@ -51,10 +97,16 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
         # Calculate season stats for each team ONCE
         print("Calculating team statistics...")
         team_stats = {}
-
+        team_lineups = {}
+        i = 0
         for team_abbr in games_df['TEAM_ABBREVIATION'].unique():
+
+            team_id = get_team_id(team_abbr)
+            team_lineups[team_abbr] = get_main_lineup_by_minutes(logs, team_id)
+
             team_games = games_df[games_df['TEAM_ABBREVIATION'] == team_abbr].copy()
             team_games = team_games.sort_values('GAME_DATE')
+
 
             wins = (team_games['WL'] == 'W').sum()
             losses = (team_games['WL'] == 'L').sum()
@@ -136,6 +188,27 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
             team1_abbr = team1['TEAM_ABBREVIATION']
             team2_abbr = team2['TEAM_ABBREVIATION']
 
+            team1_main_starters = team_lineups[team1_abbr]
+            team2_main_starters = team_lineups[team2_abbr]
+
+            team1_missing_starters = 0
+            team2_missing_starters = 0
+
+            all_logs = logs.get_data_frames()[0]
+            all_logs['Game_ID'] = all_logs['GAME_ID'].astype(str)
+
+            for starter in team1_main_starters:
+                player_log_df = all_logs[all_logs['PLAYER_NAME'] == starter['PLAYER_NAME']].copy()
+                if player_missed_game(player_log_df, game_id):
+                    team1_missing_starters += 1
+ 
+
+            for starter in team2_main_starters:
+                player_log_df = all_logs[all_logs['PLAYER_NAME'] == starter['PLAYER_NAME']].copy()
+                if player_missed_game(player_log_df, game_id):
+                    team2_missing_starters += 1
+
+
             team1_stats = team_stats[team1_abbr]
             team2_stats = team_stats[team2_abbr]
 
@@ -216,6 +289,8 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 'team1_back_to_back': team1_is_back_to_back,
                 'team1_days_rest': team1_days_rest,
                 'team1_streak': team1_current_streak,
+                'team1_missing_starters': team1_missing_starters,
+
 
                 'team2_wins': team2_stats['wins'],
                 'team2_losses': team2_stats['losses'],
@@ -234,6 +309,7 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 'team2_back_to_back': team2_is_back_to_back,
                 'team2_days_rest': team2_days_rest,
                 'team2_streak': team2_current_streak,
+                'team2_missing_starters': team2_missing_starters,
 
                 'team1_score': int(team1['PTS']),
                 'team2_score': int(team2['PTS']),
@@ -245,7 +321,7 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
             games_processed += 1
             if games_processed % 100 == 0:
                 print(f"  Processed {games_processed} games...")
-
+            
         print(f"Season {season} complete: {games_processed} games")
         time.sleep(2)
 
