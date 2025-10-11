@@ -6,7 +6,6 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 
-
 def add_matchup_stats(df):
     """Calculate matchup stats from the training data itself (no API calls)"""
     print("Calculating head-to-head records from existing game data...")
@@ -15,16 +14,14 @@ def add_matchup_stats(df):
     df['team2_matchup_wins'] = 0
     df['matchup_total_games'] = 0
 
-    # For each unique team pair, calculate their h2h record
     for idx, row in df.iterrows():
         team1 = row['team1_abbr']
         team2 = row['team2_abbr']
 
-        # Find all games between these two teams
         matchups = df[
             ((df['team1_abbr'] == team1) & (df['team2_abbr'] == team2)) |
             ((df['team1_abbr'] == team2) & (df['team2_abbr'] == team1))
-            ]
+        ]
 
         team1_wins = 0
         team2_wins = 0
@@ -62,7 +59,6 @@ def add_matchup_stats(df):
 
     return df
 
-
 if __name__ == "__main__":
     print("Loading training data...")
     df = pd.read_csv('nba_training_data.csv')
@@ -71,17 +67,47 @@ if __name__ == "__main__":
     print("Adding matchup data...")
     df = add_matchup_stats(df)
 
-    # Add interaction features
+    # --- VECTORIZE MISSING STARTERS ---
+    print("Vectorizing missing starters...")
+
+    for col in ['team1_missing_starters', 'team2_missing_starters']:
+        df[col] = df[col].fillna('')
+        df[col] = df[col].apply(lambda x: [p.strip() for p in str(x).split(',') if p.strip() != ''])
+
+    # Get all unique missing players
+    all_missing_players = set()
+    for col in ['team1_missing_starters', 'team2_missing_starters']:
+        df[col].apply(lambda x: all_missing_players.update(x))
+    all_missing_players = sorted(all_missing_players)
+
+    # Create multi-hot columns
+    multi_hot_df = pd.DataFrame(
+        0,
+        index=df.index,
+        columns=[f'missing_{p.replace(" ", "_")}' for p in all_missing_players]
+    )
+
+    for player in all_missing_players:
+        col_name = f'missing_{player.replace(" ", "_")}'
+        multi_hot_df[col_name] = df.apply(
+            lambda row: int(player in row['team1_missing_starters'] or player in row['team2_missing_starters']),
+            axis=1
+        )
+
+    df = pd.concat([df, multi_hot_df], axis=1)
+    print(f"Created {len(multi_hot_df.columns)} missing starter columns")
+
+    # --- CREATE INTERACTION FEATURES ---
     print("Creating interaction features...")
     df['win_pct_diff'] = df['team1_win_pct'] - df['team2_win_pct']
     df['pts_differential'] = (df['team1_avg_pts'] - df['team1_avg_pts_allowed']) - (
-                df['team2_avg_pts'] - df['team2_avg_pts_allowed'])
+                              df['team2_avg_pts'] - df['team2_avg_pts_allowed'])
     df['rest_advantage'] = df['team1_days_rest'] - df['team2_days_rest']
     df['streak_momentum'] = df['team1_streak'] - df['team2_streak']
     df['fg_pct_diff'] = df['team1_fg_pct'] - df['team2_fg_pct']
     df['three_pct_diff'] = df['team1_fg3_pct'] - df['team2_fg3_pct']
 
-    # List of season stats features to use
+    # --- SEASON FEATURES ---
     season_features = [
         # Win/Loss
         'team1_win_pct', 'team2_win_pct',
@@ -117,35 +143,23 @@ if __name__ == "__main__":
 
         # Streak
         'team1_streak', 'team2_streak',
-
-        # missing starters :D
-        'team1_missing_starters', 'team2_missing_starters',
-
-        # Interaction features
-        'win_pct_diff',
-        'pts_differential',
-        'rest_advantage',
-        'streak_momentum',
-        'fg_pct_diff',
-        'three_pct_diff',
     ]
+
+    # Add all multi-hot player columns
+    season_features += multi_hot_df.columns.tolist()
 
     # Extract season stats features
     X_season = df[season_features].values
 
-    # Normalize season features between 0 and 1
+    # Normalize season features
     scaler = MinMaxScaler()
     X_season_scaled = scaler.fit_transform(X_season)
 
     # Extract matchup head-to-head features
     X_h2h = df[['team1_matchup_win_pct', 'team2_matchup_win_pct']].values
 
-    # Combine with weighted scheme: 90% season stats, 10% matchup stats
-    X = np.hstack([
-        X_season_scaled * 0.9,
-        X_h2h * 0.1
-    ])
-
+    # Combine: 90% season stats, 10% matchup stats
+    X = np.hstack([X_season_scaled * 0.9, X_h2h * 0.1])
     y = df['winner'].values
 
     print("\nSplitting dataset...")
@@ -158,7 +172,6 @@ if __name__ == "__main__":
     print("\nEvaluating model...")
     y_pred = model.predict(X_test)
     accuracy = accuracy_score(y_test, y_pred)
-
     print(f"Model Accuracy: {accuracy:.3f}")
     print("\nClassification Report:")
     print(classification_report(y_test, y_pred))
@@ -168,3 +181,19 @@ if __name__ == "__main__":
     joblib.dump(scaler, 'nba_scaler.pkl')
     print("Model saved to nba_predictor_model.pkl")
     print("Scaler saved to nba_scaler.pkl")
+
+# --- FEATURE IMPORTANCE ---
+print("\nCalculating feature importances...")
+
+# Combine season_features and H2H features for labeling
+feature_names = season_features + ['team1_matchup_win_pct', 'team2_matchup_win_pct']
+importances = model.feature_importances_
+
+# Create a DataFrame for all features
+feature_importance_df = pd.DataFrame({
+    'feature': feature_names,
+    'importance': importances
+}).sort_values(by='importance', ascending=False)
+
+print("\nTop 20 features by importance:")
+print(feature_importance_df.head(20))

@@ -8,7 +8,8 @@ def safe_mean(df, col):
     """Return mean of column if exists, else 0"""
     return df[col].mean() if col in df.columns else 0
 
-def get_main_lineup_by_minutes(logs, team_id, season='2024-25'):
+
+def get_main_lineup_by_minutes(logs, team_id):
     # 1️⃣ Get all player game logs for the season (one API call)
     df = logs.get_data_frames()[0]
 
@@ -27,7 +28,7 @@ def get_main_lineup_by_minutes(logs, team_id, season='2024-25'):
     )
 
     # 5️⃣ Convert top 5 players to list of dicts
-    minutes_list = minutes_summary.head(5).to_dict(orient='records')
+    minutes_list = minutes_summary.head(12).to_dict(orient='records')
 
 
     return minutes_list
@@ -74,9 +75,8 @@ def get_team_id(team_abbr):
 def collect_all_games_efficient(seasons=['2024-25']):
     """Efficiently collect all game data with extended stats"""
     all_training_data = []
-    logs = playergamelogs.PlayerGameLogs(season_nullable=seasons)
-
     for season in seasons:
+        logs = playergamelogs.PlayerGameLogs(season_nullable=season)
         print(f"\n{'=' * 50}")
         print(f"Processing {season} season...")
         print(f"{'=' * 50}")
@@ -196,18 +196,21 @@ def collect_all_games_efficient(seasons=['2024-25']):
 
             all_logs = logs.get_data_frames()[0]
             all_logs['Game_ID'] = all_logs['GAME_ID'].astype(str)
+            
+            team1_missing_starters = []
+            team2_missing_starters = []
 
             for starter in team1_main_starters:
                 player_log_df = all_logs[all_logs['PLAYER_NAME'] == starter['PLAYER_NAME']].copy()
                 if player_missed_game(player_log_df, game_id):
-                    team1_missing_starters += 1
+                    team1_missing_starters.append(starter['PLAYER_NAME'])
  
 
             for starter in team2_main_starters:
                 player_log_df = all_logs[all_logs['PLAYER_NAME'] == starter['PLAYER_NAME']].copy()
                 if player_missed_game(player_log_df, game_id):
-                    team2_missing_starters += 1
-
+                    team2_missing_starters.append(starter['PLAYER_NAME'])
+            
 
             team1_stats = team_stats[team1_abbr]
             team2_stats = team_stats[team2_abbr]
@@ -289,7 +292,7 @@ def collect_all_games_efficient(seasons=['2024-25']):
                 'team1_back_to_back': team1_is_back_to_back,
                 'team1_days_rest': team1_days_rest,
                 'team1_streak': team1_current_streak,
-                'team1_missing_starters': team1_missing_starters,
+                'team1_missing_starters': ', '.join(team1_missing_starters),
 
 
                 'team2_wins': team2_stats['wins'],
@@ -309,7 +312,7 @@ def collect_all_games_efficient(seasons=['2024-25']):
                 'team2_back_to_back': team2_is_back_to_back,
                 'team2_days_rest': team2_days_rest,
                 'team2_streak': team2_current_streak,
-                'team2_missing_starters': team2_missing_starters,
+                'team2_missing_starters': ', '.join(team2_missing_starters),
 
                 'team1_score': int(team1['PTS']),
                 'team2_score': int(team2['PTS']),
