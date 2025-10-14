@@ -6,8 +6,9 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import unicodedata
 from django.conf import settings
-import time
+from player_stats import scrape_breference_stats
 
 # Optional: Import injury tracking if you've set it up
 try:
@@ -38,6 +39,23 @@ try:
 except:
     scaler = None
     print("Scaler not found")
+
+# Load multi-hot player columns from training
+# Load injury columns from saved list
+try:
+    import json
+    with open('injury_columns.json', 'r') as f:
+        injury_columns = json.load(f)
+    print(f"✅ Loaded {len(injury_columns)} injury columns from file")
+except:
+    injury_columns = []
+    print("❌ Could not load injury_columns.json - run train_model.py first!")
+
+def normalize_name(name):
+    """Convert special characters to ASCII"""
+    # Remove accents: Vít → Vit, Krejčí → Krejci
+    nfd = unicodedata.normalize('NFD', name)
+    return ''.join(c for c in nfd if unicodedata.category(c) != 'Mn').replace(' ', '_')
 
 
 def get_team_stats_from_cache(team_abbr):
@@ -168,12 +186,10 @@ def predict_winner(request):
         if not team1_stats or not team2_stats:
             return JsonResponse({'error': 'Team data not found in cache'}, status=404)
 
-
         # Get real-time injury data
+        team1_missing = team1_stats.get('missing_starters', 0)
+        team2_missing = team2_stats.get('missing_starters', 0)
         
-        # team1_missing = count_missing_starters(team1, team1_lineup)
-        # team2_missing = count_missing_starters(team2, team2_lineup)
-
         if INJURIES_AVAILABLE:
             try:
                 from nba_injuries import get_current_injuries
@@ -186,7 +202,7 @@ def predict_winner(request):
                 # Count total injured players (all statuses)
                 team1_missing = len(team1_injuries)
                 team2_missing = len(team2_injuries)
-
+                
                 team1_out_count = len([i for i in team1_injuries if 'out' in i['status'].lower()])
                 team2_out_count = len([i for i in team2_injuries if 'out' in i['status'].lower()])
                 
@@ -216,8 +232,9 @@ def predict_winner(request):
         team1_stats['missing_starters'] = team1_missing
         team2_stats['missing_starters'] = team2_missing
 
+        
         if model and scaler:
-            # Build season features (36 total) - MUST match train_model.py order exactly
+            # Build season features (30 base features - WITHOUT injury counts)
             season_features = [
                 # Win/Loss
                 team1_stats['win_pct'], team2_stats['win_pct'],
@@ -253,19 +270,46 @@ def predict_winner(request):
                 
                 # Streak
                 team1_stats['streak'], team2_stats['streak'],
-                
-                # Missing starters
-                team1_missing, team2_missing,
-                
-                # Interaction features (6 features)
-                team1_stats['win_pct'] - team2_stats['win_pct'],  # win_pct_diff
-                (team1_stats['avg_pts'] - team1_stats['avg_pts_allowed']) - 
-                (team2_stats['avg_pts'] - team2_stats['avg_pts_allowed']),  # pts_differential
-                team1_stats['days_rest'] - team2_stats['days_rest'],  # rest_advantage
-                team1_stats['streak'] - team2_stats['streak'],  # streak_momentum
-                team1_stats['fg_pct'] - team2_stats['fg_pct'],  # fg_pct_diff
-                team1_stats['fg3_pct'] - team2_stats['fg3_pct'],  # three_pct_diff
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             ]
+            
+            # Add multi-hot encoded injury features
+            # Get injured player names from real-time data
+            injured_players = set()
+            if INJURIES_AVAILABLE:
+                try:
+                    from nba_injuries import get_current_injuries
+                    all_injuries = get_current_injuries()
+                    
+                    for team_injuries in [all_injuries.get(team1, []), all_injuries.get(team2, [])]:
+                        for injury in team_injuries:
+                            # Normalize player name to match training format
+                            player_name = normalize_name(injury['player'])
+                            injured_players.add(player_name)
+                except:
+                    pass
+            
+            # Create multi-hot encoding for all injury columns from training
+            injury_features = []
+            injured_feature_names = []  # Track which features are set to 1
+            for col in injury_columns:
+                # Extract player name from column (format: "missing_Player_Name")
+                player_name = col.replace('missing_', '')
+                # Set to 1 if this player is currently injured, 0 otherwise
+                injury_features.append(1 if player_name in injured_players else 0)
+
+                if player_name in injured_players:
+                    injured_feature_names.append(col)
+
+            print(f"📊 Total injury columns: {len(injury_columns)}")
+            print(f"🏥 Currently injured players from ESPN: {injured_players}")
+            print(f"✅ Injury features set to 1: {sum(injury_features)}")
+            print(f"🎯 Features activated: {injured_feature_names}")
+            
+            print(f"Base features: {len(season_features)}, Injury features: {len(injury_features)}")
+            
+            # Combine base features with injury features
+            all_season_features = season_features + injury_features
             
             # Matchup head-to-head features (2 features)
             matchup_features = [
@@ -273,10 +317,10 @@ def predict_winner(request):
                 h2h.get('team2_win_pct', 0.5)
             ]
             
-            print(f"Season features: {len(season_features)}, Matchup features: {len(matchup_features)}")
+            print(f"Total season features: {len(all_season_features)}, Matchup features: {len(matchup_features)}")
             
-            # Scale season features
-            X_season = np.array(season_features).reshape(1, -1)
+            # Scale season features (base + injuries)
+            X_season = np.array(all_season_features).reshape(1, -1)
             X_season_scaled = scaler.transform(X_season)
             
             # Combine with weighted scheme: 90% season, 10% matchup
@@ -285,7 +329,7 @@ def predict_winner(request):
                 np.array(matchup_features).reshape(1, -1) * 0.1
             ])
             
-            print(f"Final feature vector shape: {X.shape}")  # Should be (1, 38)
+            print(f"Final feature vector shape: {X.shape}")
             
             prediction = model.predict(X)[0]
             probabilities = model.predict_proba(X)[0]

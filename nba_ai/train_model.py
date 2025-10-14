@@ -5,6 +5,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import MinMaxScaler
 import joblib
+import json
+import unicodedata
+
+def normalize_name(name):
+    """Convert special characters to ASCII"""
+    # Remove accents: Vít → Vit, Krejčí → Krejci
+    nfd = unicodedata.normalize('NFD', name)
+    return ''.join(c for c in nfd if unicodedata.category(c) != 'Mn').replace(' ', '_')
 
 def add_matchup_stats(df):
     """Calculate matchup stats from the training data itself (no API calls)"""
@@ -84,11 +92,10 @@ if __name__ == "__main__":
     multi_hot_df = pd.DataFrame(
         0,
         index=df.index,
-        columns=[f'missing_{p.replace(" ", "_")}' for p in all_missing_players]
+        columns=[f'{normalize_name(p)}' for p in all_missing_players]
     )
-
     for player in all_missing_players:
-        col_name = f'missing_{player.replace(" ", "_")}'
+        col_name = f'{normalize_name(player).replace(" ", "_")}'
         multi_hot_df[col_name] = df.apply(
             lambda row: int(player in row['team1_missing_starters'] or player in row['team2_missing_starters']),
             axis=1
@@ -143,6 +150,13 @@ if __name__ == "__main__":
 
         # Streak
         'team1_streak', 'team2_streak',
+        
+        # NEW: Player matchup performance stats
+        'team1_lineup_pts_diff_vs_opp', 'team2_lineup_pts_diff_vs_opp',
+        'team1_lineup_reb_diff_vs_opp', 'team2_lineup_reb_diff_vs_opp',
+        'team1_lineup_ast_diff_vs_opp', 'team2_lineup_ast_diff_vs_opp',
+        'team1_lineup_fg_pct_diff_vs_opp', 'team2_lineup_fg_pct_diff_vs_opp',
+        'team1_lineup_vs_opp_games', 'team2_lineup_vs_opp_games',
     ]
 
     # Add all multi-hot player columns
@@ -158,8 +172,8 @@ if __name__ == "__main__":
     # Extract matchup head-to-head features
     X_h2h = df[['team1_matchup_win_pct', 'team2_matchup_win_pct']].values
 
-    # Combine: 90% season stats, 10% matchup stats
-    X = np.hstack([X_season_scaled * 0.9, X_h2h * 0.1])
+    # Combine: 85% season stats (including player matchup stats), 15% team matchup stats
+    X = np.hstack([X_season_scaled * 0.85, X_h2h * 0.15])
     y = df['winner'].values
 
     print("\nSplitting dataset...")
@@ -182,18 +196,54 @@ if __name__ == "__main__":
     print("Model saved to nba_predictor_model.pkl")
     print("Scaler saved to nba_scaler.pkl")
 
-# --- FEATURE IMPORTANCE ---
-print("\nCalculating feature importances...")
+    # --- FEATURE IMPORTANCE ---
+    print("\nCalculating feature importances...")
 
-# Combine season_features and H2H features for labeling
-feature_names = season_features + ['team1_matchup_win_pct', 'team2_matchup_win_pct']
-importances = model.feature_importances_
+    # Combine season_features and H2H features for labeling
+    feature_names = season_features + ['team1_matchup_win_pct', 'team2_matchup_win_pct']
+    importances = model.feature_importances_
 
-# Create a DataFrame for all features
-feature_importance_df = pd.DataFrame({
-    'feature': feature_names,
-    'importance': importances
-}).sort_values(by='importance', ascending=False)
+    # Create a DataFrame for all features
+    feature_importance_df = pd.DataFrame({
+        'feature': feature_names,
+        'importance': importances
+    }).sort_values(by='importance', ascending=False)
 
-print("\nTop 20 features by importance:")
-print(feature_importance_df.head(20))
+    print("\n" + "="*60)
+    print("TOP 30 MOST IMPORTANT FEATURES:")
+    print("="*60)
+    for idx, row in feature_importance_df.head(30).iterrows():
+        print(f"{row['feature']:50s} {row['importance']:.4f}")
+    
+    # Analyze matchup stat importance
+    matchup_features = [
+        'team1_lineup_pts_diff_vs_opp', 'team2_lineup_pts_diff_vs_opp',
+        'team1_lineup_reb_diff_vs_opp', 'team2_lineup_reb_diff_vs_opp',
+        'team1_lineup_ast_diff_vs_opp', 'team2_lineup_ast_diff_vs_opp',
+        'team1_lineup_fg_pct_diff_vs_opp', 'team2_lineup_fg_pct_diff_vs_opp',
+        'team1_lineup_vs_opp_games', 'team2_lineup_vs_opp_games',
+    ]
+    
+    matchup_importance = feature_importance_df[
+        feature_importance_df['feature'].isin(matchup_features)
+    ].sort_values(by='importance', ascending=False)
+    
+    print("\n" + "="*60)
+    print("PLAYER MATCHUP FEATURE IMPORTANCE:")
+    print("="*60)
+    for idx, row in matchup_importance.iterrows():
+        print(f"{row['feature']:50s} {row['importance']:.4f}")
+    
+    total_matchup_importance = matchup_importance['importance'].sum()
+    print(f"\nTotal matchup features importance: {total_matchup_importance:.4f}")
+    print(f"Percentage of total model: {total_matchup_importance*100:.2f}%")
+
+    # Save feature names for prediction script
+    with open('injury_columns.json', 'w') as f:
+        json.dump(multi_hot_df.columns.tolist(), f, ensure_ascii=False, indent=2)
+    print("\nSaved injury column names to injury_columns.json")
+    
+    # Save all feature names for debugging
+    with open('all_feature_names.json', 'w') as f:
+        json.dump(feature_names, f, ensure_ascii=False, indent=2)
+    print("Saved all feature names to all_feature_names.json")

@@ -9,7 +9,6 @@ import re
 import os
 
 # Get API key if using RapidAPI fallback
-RAPIDAPI_KEY = os.environ.get('RAPIDAPI_KEY', '')
 
 _injury_cache = {}
 _cache_timestamp = None
@@ -39,6 +38,7 @@ def scrape_espn_injuries():
         # Find all injury table containers
         tables = soup.find_all('div', class_='ResponsiveTable')
         print(f"Found {len(tables)} ResponsiveTable divs")
+        print('tables: ', tables)
         
         for table in tables:
             # Get team name from the span with class "injuries__teamName"
