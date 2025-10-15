@@ -38,7 +38,6 @@ def scrape_espn_injuries():
         # Find all injury table containers
         tables = soup.find_all('div', class_='ResponsiveTable')
         print(f"Found {len(tables)} ResponsiveTable divs")
-        print('tables: ', tables)
         
         for table in tables:
             # Get team name from the span with class "injuries__teamName"
@@ -64,8 +63,6 @@ def scrape_espn_injuries():
             
             injuries = []
             rows = tbody.find_all('tr', class_='Table__TR')
-            
-            print(f"  {team_abbr}: Processing {len(rows)} rows")
             
             for row in rows:
                 # Find specific cells by their column class

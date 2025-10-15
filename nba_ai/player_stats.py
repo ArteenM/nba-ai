@@ -6,6 +6,17 @@ from urllib.request import urlopen, Request
 from bs4 import BeautifulSoup, Comment
 import re
 import unicodedata, time
+from functools import wraps
+
+def rate_limit(seconds):
+    """Decorator to add delay between function calls"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            time.sleep(seconds)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def parse_player_name(player_name):
@@ -52,10 +63,25 @@ def build_bref_url(player_name, suffix_num=1):
     
     return f"https://www.basketball-reference.com/players/{first_letter}/{last_first5}{first_first2}{suffix_num:02d}.html"
 
+def build_bref_split_url(player_name, suffix_num=1):
+    normalized = normalize_for_url(player_name)
+    first_name, last_name = parse_player_name(normalized)
+    
+    if not first_name or not last_name:
+        return None
+    
+    first_name = first_name.lower().replace(' ', '').replace("'", '').replace('-', '')
+    last_name = last_name.lower().replace(' ', '').replace("'", '').replace('-', '')
+    last_name = re.sub(r'\s*(jr|sr|ii|iii|iv|v)\.?$', '', last_name)
+    
+    first_letter = last_name[0]
+    last_first5 = last_name[:5]
+    first_first2 = first_name[:2]
+    
+    return f"https://www.basketball-reference.com/players/{first_letter}/{last_first5}{first_first2}{suffix_num:02d}/splits/2025"
 
-from bs4 import BeautifulSoup, Comment
-from urllib.request import Request, urlopen
 
+#@rate_limit(30)
 def scrape_breference_starters(team_abbr):
     """
     Scrapes Basketball Reference for the 2025 (or 2024) season
@@ -90,6 +116,7 @@ def scrape_breference_starters(team_abbr):
         
         if (len(starters) == 5):
             return starters
+#@rate_limit(30)
 def scrape_breference_stats(player_name):
     """
     Scrape Basketball Reference for player stats using urllib
@@ -130,7 +157,7 @@ def scrape_breference_stats(player_name):
         #print(stat_boxes)
         print(f"Found {len(stat_boxes)} stat boxes")
 
-        season_stats = {}
+        all_stats = {}
         
         for box in soup.find_all('div'):
             label_tag = box.find('span', class_='poptip')
@@ -144,8 +171,17 @@ def scrape_breference_stats(player_name):
                 continue
 
             # Only take first <p> = most recent season (2024-25)
-            season_stats[short_label] = values[0]
-        return season_stats
+            all_stats[short_label] = values[0]
+
+        # Only needed stats for now
+        main_stats = {
+            'points': float(all_stats['PTS']),
+            'assists': float(all_stats['AST']),
+            'rebounds': float(all_stats['TRB']),
+            'fgpercent': float(all_stats['FG%']) / 100
+
+        }
+        return main_stats
         
         
     except Exception as e:
@@ -181,21 +217,81 @@ def find_player_variations(player_name):
     
     return None
 
-def scrape_breference_stats_vs_team(player_name, opponent_abbr):
-    """
-    Scrape Basketball Reference for player's average stats against a specific team
-    Returns data in same format as scrape_breference_stats()
+
+def abbr_to_name(team_abbr):
+
+    abbr = team_abbr.upper()
     
-    Args:
-        player_name: Full player name (e.g., "Stephen Curry")
-        opponent_abbr: 3-letter opponent code (e.g., "LAL", "GSW")
+    team_map = {
+        'ATL': 'Atlanta',
+        'BOS': 'Boston',
+        'BKN': 'Brooklyn',
+        'CHA': 'Charlotte',
+        'CHI': 'Chicago',
+        'CLE': 'Cleveland',
+        'DAL': 'Dallas',
+        'DEN': 'Denver',
+        'DET': 'Detroit',
+        'GSW': 'Golden State',
+        'HOU': 'Houston',
+        'IND': 'Indiana',
+        'LAC': 'LA Clippers',
+        'LAL': 'LA Lakers',
+        'MEM': 'Memphis',
+        'MIA': 'Miami',
+        'MIL': 'Milwaukee',
+        'MIN': 'Minnesota',
+        'NOP': 'New Orleans',
+        'NYK': 'New York',
+        'OKC': 'Oklahoma City',
+        'ORL': 'Orlando',
+        'PHI': 'Philadelphia',
+        'PHX': 'Phoenix',
+        'POR': 'Portland',
+        'SAC': 'Sacramento',
+        'SAS': 'San Antonio',
+        'TOR': 'Toronto',
+        'UTA': 'Utah',
+        'WAS': 'Washington'
+    }
     
-    Returns:
-        Dict like: {'G': '5', 'PTS': '28.4', 'TRB': '5.2', 'AST': '6.8', 'FG%': '45.2', ...}
-    """
-    url = build_bref_url(player_name)
+    return team_map.get(abbr, abbr)
+
+#@rate_limit(30)
+def scrape_breference_stats_vs_team(player_name, team_name):
+
+    # team_name must be this:
+    # Boston
+    # Brooklyn
+    # Chicago
+    # Cleveland
+    # Dallas
+    # Denver
+    # Detroit
+    # Golden State
+    # Houston
+    # Indiana
+    # LA Clippers
+    # LA Lakers
+    # Memphis
+    # Miami
+    # Milwaukee
+    # Minnesota
+    # New York
+    # Oklahoma City
+    # Orlando
+    # Philadelphia
+    # Phoenix
+    # Portland
+    # Sacramento
+    # San Antonio
+    # Toronto
+    # Utah
+    # Washington
+
+    url = build_bref_split_url(player_name)
     print(f"Fetching: {url}")
-    print(f"Looking for games vs {opponent_abbr}")
+    print(f"Looking for games vs {team_name}")
     
     if not url:
         return None
@@ -208,125 +304,81 @@ def scrape_breference_stats_vs_team(player_name, opponent_abbr):
         req = Request(url, headers=headers)
         html = urlopen(req, timeout=10)
         soup = BeautifulSoup(html, 'html.parser')
-        
-        # Find the game log table (it's in a comment)
-        gamelog_wrapper = soup.find('div', id='all_pgl_basic')
-        
-        if not gamelog_wrapper:
-            print("❌ Could not find game log")
-            return None
-        
-        # Extract commented HTML
-        from bs4 import Comment
-        comment = gamelog_wrapper.find(string=lambda text: isinstance(text, Comment))
-        
-        if not comment:
-            # Try finding it directly
-            gamelog_table = soup.find('table', id='pgl_basic')
-        else:
-            table_soup = BeautifulSoup(comment, 'html.parser')
-            gamelog_table = table_soup.find('table', id='pgl_basic')
-        
-        if not gamelog_table:
-            print("❌ Could not find game log table")
-            return None
-        
-        print("✅ Found game log table")
-        
-        tbody = gamelog_table.find('tbody')
-        if not tbody:
-            print("❌ No tbody in game log")
-            return None
-        
-        rows = tbody.find_all('tr')
-        
-        # Collect stats from games vs opponent
-        games_vs_opponent = []
-        
+
+        # Find all opponent rows (they have data-stat="split_id")
+        rows = soup.find_all('tr')
+        stats = {}
+
         for row in rows:
-            # Skip header rows
-            if row.get('class') and 'thead' in row.get('class'):
-                continue
-            
-            # Find opponent column
-            opp_cell = row.find('td', {'data-stat': 'opp_id'})
-            
-            if not opp_cell:
-                continue
-            
-            opp_text = opp_cell.get_text(strip=True)
-            
-            # Check if this game was against the specified opponent
-            if opponent_abbr.upper() not in opp_text.upper():
-                continue
-            
-            # Check if player actually played (has minutes)
-            mp_cell = row.find('td', {'data-stat': 'mp'})
-            if not mp_cell or not mp_cell.get_text(strip=True):
-                continue
-            
-            # Extract all stats
-            game_stats = {}
-            
-            stat_columns = [
-                ('pts', 'PTS'),
-                ('trb', 'TRB'),
-                ('ast', 'AST'),
-                ('fg_pct', 'FG%'),
-                ('fg3_pct', 'FG3%'),
-                ('ft_pct', 'FT%'),
-            ]
-            
-            for data_stat, key in stat_columns:
-                cell = row.find('td', {'data-stat': data_stat})
-                if cell and cell.get_text(strip=True):
-                    try:
-                        value = float(cell.get_text(strip=True))
-                        game_stats[key] = value
-                    except:
-                        game_stats[key] = 0
-                else:
-                    game_stats[key] = 0
-            
-            games_vs_opponent.append(game_stats)
+            # Find the opponent cell
+            opponent_cell = row.find('a')
+            if (opponent_cell):
+                name = opponent_cell.get_text(strip=True)
+                if (name == team_name):
+                    games = row.find('td', {'data-stat':'g'}).get_text(strip=True)
+                    points = row.find('td', {'data-stat':'pts_per_g'}).get_text(strip=True)
+                    assists = row.find('td', {'data-stat': 'ast_per_g'}).get_text(strip=True)
+                    rebounds = row.find('td', {'data-stat':'trb_per_g'}).get_text(strip=True)
+                    fgpercent = row.find('td', {'data-stat': 'fg_pct'}).get_text(strip=True)
+                    stats = {
+                        'games': (games),
+                        'points': float(points),
+                        'assists': float(assists),
+                        'rebounds': float(rebounds),
+                        'fgpercent': float(fgpercent)
+                    }
+
+                    return stats
         
-        if not games_vs_opponent:
-            print(f"❌ No games found vs {opponent_abbr}")
-            return {
-                'G': '0',
-                'PTS': '0.0',
-                'TRB': '0.0',
-                'AST': '0.0',
-                'FG%': '0.0',
-                'FG3%': '0.0',
-                'FT%': '0.0'
-            }
-        
-        # Calculate averages in the same format
-        num_games = len(games_vs_opponent)
-        
-        vs_stats = {
-            'G': str(num_games),
-            'PTS': f"{sum(g['PTS'] for g in games_vs_opponent) / num_games:.1f}",
-            'TRB': f"{sum(g['TRB'] for g in games_vs_opponent) / num_games:.1f}",
-            'AST': f"{sum(g['AST'] for g in games_vs_opponent) / num_games:.1f}",
-            'FG%': f"{sum(g['FG%'] for g in games_vs_opponent) / num_games:.1f}",
-            'FG3%': f"{sum(g['FG3%'] for g in games_vs_opponent) / num_games:.1f}",
-            'FT%': f"{sum(g['FT%'] for g in games_vs_opponent) / num_games:.1f}",
+        # If no matching team found, return default stats
+        print(f"⚠️ No games found vs {team_name}")
+        return {
+            'games': '0',
+            'points': 0.0,
+            'assists': 0.0,
+            'rebounds': 0.0,
+            'fgpercent': 0.0
         }
-        
-        print(f"✅ Found {num_games} games vs {opponent_abbr}")
-        print(f"   Stats: {vs_stats}")
-        
-        return vs_stats
         
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        # Return default stats instead of 0
+        return {
+            'games': '0',
+            'points': 0.0,
+            'assists': 0.0,
+            'rebounds': 0.0,
+            'fgpercent': 0.0
+        }
+    
 
+def difference_vs_opp(player_name, team_name):
+    player_stats = scrape_breference_stats(player_name)
+    player_vs_team_stats = scrape_breference_stats_vs_team(player_name, team_name)
+    
+    # Check if both stats were retrieved successfully
+    if not player_stats or not player_vs_team_stats:
+        print(f"❌ Could not get stats for {player_name}")
+        return {
+            'games': '0',
+            'points': 0.0,
+            'assists': 0.0,
+            'rebounds': 0.0,
+            'fgpercent': 0.0
+        }
+    
+    # Calculate difference
+    difference = {
+        'games': player_vs_team_stats['games'],
+        'points': player_vs_team_stats['points'] - player_stats['points'],
+        'assists': player_vs_team_stats['assists'] - player_stats['assists'],
+        'rebounds': player_vs_team_stats['rebounds'] - player_stats['rebounds'],
+        'fgpercent': player_vs_team_stats['fgpercent'] - player_stats['fgpercent']
+    }
+
+    return difference
 
 if __name__ == "__main__":
-    starters=scrape_breference_stats_vs_team('Trae Young', 'NYK')
-    print(starters)
+    starters = scrape_breference_starters('LAL')

@@ -3,12 +3,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
 import pandas as pd
-import numpy as np
+import numpy as np, time
 import joblib
 import os
 import unicodedata
 from django.conf import settings
-from player_stats import scrape_breference_stats, scrape_breference_starters
+from player_stats import scrape_breference_starters, difference_vs_opp, abbr_to_name
 
 # Optional: Import injury tracking if you've set it up
 try:
@@ -233,8 +233,40 @@ def predict_winner(request):
         team2_stats['missing_starters'] = team2_missing
 
         team1_stats['starters'] = scrape_breference_starters(team1)
+        pts_diff1 = 0
+        ast_diff1 = 0
+        reb_diff1 = 0
+        fgpercent_diff1 = 0
         team2_stats['starters'] = scrape_breference_starters(team2)
+        pts_diff2 = 0
+        ast_diff2 = 0
+        reb_diff2 = 0
+        fgpercent_diff2 = 0
+        games_against = 0
+        for starter in team1_stats['starters']:
+            time.sleep(4)
+            try:
 
+                difference_team1 = difference_vs_opp(starter, abbr_to_name(team2))
+                games_against = difference_team1['games']
+                pts_diff1 += difference_team1['points']
+                ast_diff1 += difference_team1['assists']
+                reb_diff1 += difference_team1['rebounds']
+                fgpercent_diff1 += difference_team1['fgpercent']
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
+
+        for starter in team2_stats['starters']:
+            time.sleep(4)
+            try:
+                difference_team2 = difference_vs_opp(starter, abbr_to_name(team1))
+                pts_diff2 += difference_team2['points']
+                ast_diff2 += difference_team2['assists']
+                reb_diff2 += difference_team2['rebounds']
+                fgpercent_diff2 += difference_team2['fgpercent']
+            except Exception as e:
+                print(f"❌ Error: {e}")
         
         if model and scaler:
             # Build season features (30 base features - WITHOUT injury counts)
@@ -273,7 +305,7 @@ def predict_winner(request):
                 
                 # Streak
                 team1_stats['streak'], team2_stats['streak'],
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                pts_diff1, pts_diff2, reb_diff1, reb_diff2, ast_diff1, ast_diff2, fgpercent_diff1, fgpercent_diff2, games_against, games_against,
             ]
             
             # Add multi-hot encoded injury features
@@ -304,12 +336,10 @@ def predict_winner(request):
                 if player_name in injured_players:
                     injured_feature_names.append(col)
 
-            print(f"📊 Total injury columns: {len(injury_columns)}")
             print(f"🏥 Currently injured players from ESPN: {injured_players}")
             print(f"✅ Injury features set to 1: {sum(injury_features)}")
             print(f"🎯 Features activated: {injured_feature_names}")
             
-            print(f"Base features: {len(season_features)}, Injury features: {len(injury_features)}")
             
             # Combine base features with injury features
             all_season_features = season_features + injury_features
@@ -320,7 +350,6 @@ def predict_winner(request):
                 h2h.get('team2_win_pct', 0.5)
             ]
             
-            print(f"Total season features: {len(all_season_features)}, Matchup features: {len(matchup_features)}")
             
             # Scale season features (base + injuries)
             X_season = np.array(all_season_features).reshape(1, -1)
@@ -332,7 +361,6 @@ def predict_winner(request):
                 np.array(matchup_features).reshape(1, -1) * 0.1
             ])
             
-            print(f"Final feature vector shape: {X.shape}")
             
             prediction = model.predict(X)[0]
             probabilities = model.predict_proba(X)[0]
