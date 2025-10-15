@@ -8,7 +8,7 @@ import joblib
 import os
 import unicodedata
 from django.conf import settings
-from player_stats import scrape_breference_stats
+from player_stats import scrape_breference_stats, scrape_breference_starters
 
 # Optional: Import injury tracking if you've set it up
 try:
@@ -231,6 +231,9 @@ def predict_winner(request):
         # Update stats with real-time injury counts
         team1_stats['missing_starters'] = team1_missing
         team2_stats['missing_starters'] = team2_missing
+
+        team1_stats['starters'] = scrape_breference_starters(team1)
+        team2_stats['starters'] = scrape_breference_starters(team2)
 
         
         if model and scaler:
