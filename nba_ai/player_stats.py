@@ -81,12 +81,12 @@ def build_bref_split_url(player_name, suffix_num=1):
     return f"https://www.basketball-reference.com/players/{first_letter}/{last_first5}{first_first2}{suffix_num:02d}/splits/2025"
 
 
-#@rate_limit(30)
 def scrape_breference_starters(team_abbr):
     """
     Scrapes Basketball Reference for the 2025 (or 2024) season
     and returns the team's starting 5 player names.
     """
+    time.sleep(2)
     url = f"https://www.basketball-reference.com/teams/{team_abbr}/2025.html#all_totals_stats"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -116,13 +116,17 @@ def scrape_breference_starters(team_abbr):
         
         if (len(starters) == 5):
             return starters
-#@rate_limit(30)
-def scrape_breference_stats(player_name):
+
+def scrape_breference_stats(player_name, team):
     """
     Scrape Basketball Reference for player stats using urllib
     """
-    url = build_bref_url(player_name)
-    print(f"Fetching: {url}")
+
+ # Boston, Toronto, etc...
+    time.sleep(2)
+    url = find_player_variations(player_name, team)
+
+    print(url)
     
     if not url:
         return None
@@ -150,12 +154,9 @@ def scrape_breference_stats(player_name):
             print("❌ Could not find stats_pullout div")
             return None
         
-        print("✅ Found stats_pullout div")
-        
         # Find all stat boxes (they're in <div class="p1"> or <div class="p2">)
         stat_boxes = stats_pullout.find_all('div', class_=['p1', 'p2', 'p3'])
         #print(stat_boxes)
-        print(f"Found {len(stat_boxes)} stat boxes")
 
         all_stats = {}
         
@@ -191,7 +192,7 @@ def scrape_breference_stats(player_name):
         return None
 
 
-def find_player_variations(player_name):
+def find_player_variations(player_name, team):
     """Try different URL variations (01-09)"""
     for suffix in range(1, 10):
         url = build_bref_url(player_name, suffix)
@@ -200,20 +201,21 @@ def find_player_variations(player_name):
         
         print(f"\nTrying: {url}")
         
-        try:
-            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            html = urlopen(req, timeout=5)
-            
-            # Check if we got a valid page
-            soup = BeautifulSoup(html, 'html.parser')
-            title = soup.find('title')
-            
-            if title and 'Page Not Found' not in title.get_text():
-                print(f"✅ Found: {url}")
-                return url
-        except:
-            print(f"   Not found")
-            continue
+        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        html = urlopen(req, timeout=5)
+        
+        # Check if we got a valid page
+        soup = BeautifulSoup(html, 'html.parser')
+        media = soup.find_all('div', id='meta')
+        for cell in media:
+            name = cell.find_all('p')
+            for j in name:
+                a_href = j.find('a')
+                if (a_href):
+                    team_name = a_href.get_text(strip=True)
+                    if (team == team_name):
+                        return url
+
     
     return None
 
@@ -257,10 +259,57 @@ def abbr_to_name(team_abbr):
     
     return team_map.get(abbr, abbr)
 
-#@rate_limit(30)
-def scrape_breference_stats_vs_team(player_name, team_name):
+def city_to_full_name(city_name):
+    """
+    Convert city name to full team name
+    
+    Args:
+        city_name: City name (e.g., 'Boston', 'Los Angeles', 'Golden State')
+    
+    Returns:
+        Full team name (e.g., 'Boston Celtics', 'Los Angeles Lakers')
+    """
+    city = city_name.strip()
+    
+    city_map = {
+        'Atlanta': 'Atlanta Hawks',
+        'Boston': 'Boston Celtics',
+        'Brooklyn': 'Brooklyn Nets',
+        'Charlotte': 'Charlotte Hornets',
+        'Chicago': 'Chicago Bulls',
+        'Cleveland': 'Cleveland Cavaliers',
+        'Dallas': 'Dallas Mavericks',
+        'Denver': 'Denver Nuggets',
+        'Detroit': 'Detroit Pistons',
+        'Golden State': 'Golden State Warriors',
+        'Houston': 'Houston Rockets',
+        'Indiana': 'Indiana Pacers',
+        'LA Clippers': 'LA Clippers',
+        'LA Lakers': 'Los Angeles Lakers',
+        'Memphis': 'Memphis Grizzlies',
+        'Miami': 'Miami Heat',
+        'Milwaukee': 'Milwaukee Bucks',
+        'Minnesota': 'Minnesota Timberwolves',
+        'New Orleans': 'New Orleans Pelicans',
+        'New York': 'New York Knicks',
+        'Oklahoma City': 'Oklahoma City Thunder',
+        'Orlando': 'Orlando Magic',
+        'Philadelphia': 'Philadelphia 76ers',
+        'Phoenix': 'Phoenix Suns',
+        'Portland': 'Portland Trail Blazers',
+        'Sacramento': 'Sacramento Kings',
+        'San Antonio': 'San Antonio Spurs',
+        'Toronto': 'Toronto Raptors',
+        'Utah': 'Utah Jazz',
+        'Washington': 'Washington Wizards'
+    }
+    
+    return city_map.get(city, city)
 
-    # team_name must be this:
+
+def scrape_breference_stats_vs_team(player_name, team_name, opp_team_name):
+
+    # opp_team_name must be this:
     # Boston
     # Brooklyn
     # Chicago
@@ -288,10 +337,9 @@ def scrape_breference_stats_vs_team(player_name, team_name):
     # Toronto
     # Utah
     # Washington
-
-    url = build_bref_split_url(player_name)
-    print(f"Fetching: {url}")
-    print(f"Looking for games vs {team_name}")
+    time.sleep(2)
+    url = find_player_variations(player_name, team_name)
+    url = url.replace('.html', '/splits/2025')
     
     if not url:
         return None
@@ -314,7 +362,7 @@ def scrape_breference_stats_vs_team(player_name, team_name):
             opponent_cell = row.find('a')
             if (opponent_cell):
                 name = opponent_cell.get_text(strip=True)
-                if (name == team_name):
+                if (name == opp_team_name):
                     games = row.find('td', {'data-stat':'g'}).get_text(strip=True)
                     points = row.find('td', {'data-stat':'pts_per_g'}).get_text(strip=True)
                     assists = row.find('td', {'data-stat': 'ast_per_g'}).get_text(strip=True)
@@ -331,7 +379,7 @@ def scrape_breference_stats_vs_team(player_name, team_name):
                     return stats
         
         # If no matching team found, return default stats
-        print(f"⚠️ No games found vs {team_name}")
+        print(f"⚠️ No games found vs {opp_team_name}")
         return {
             'games': '0',
             'points': 0.0,
@@ -354,9 +402,11 @@ def scrape_breference_stats_vs_team(player_name, team_name):
         }
     
 
-def difference_vs_opp(player_name, team_name):
-    player_stats = scrape_breference_stats(player_name)
-    player_vs_team_stats = scrape_breference_stats_vs_team(player_name, team_name)
+def difference_vs_opp(player_name, team_name, opp_team_name):
+    full_name = abbr_to_name(team_name) # Full name of own team
+    team_name = city_to_full_name(full_name)
+    player_stats = scrape_breference_stats(player_name, team_name)
+    player_vs_team_stats = scrape_breference_stats_vs_team(player_name, team_name, opp_team_name)
     
     # Check if both stats were retrieved successfully
     if not player_stats or not player_vs_team_stats:
@@ -381,4 +431,8 @@ def difference_vs_opp(player_name, team_name):
     return difference
 
 if __name__ == "__main__":
-    starters = scrape_breference_starters('LAL')
+    player = 'Lebron James'
+    team = 'Los Angeles Lakers'
+    stats = scrape_breference_stats_vs_team(player, team, "Boston")
+    print(stats)
+

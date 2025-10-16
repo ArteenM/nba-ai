@@ -8,7 +8,7 @@ import joblib
 import os
 import unicodedata
 from django.conf import settings
-from player_stats import scrape_breference_starters, difference_vs_opp, abbr_to_name
+from player_stats import scrape_breference_starters, difference_vs_opp, abbr_to_name, city_to_full_name
 
 # Optional: Import injury tracking if you've set it up
 try:
@@ -232,6 +232,7 @@ def predict_winner(request):
         team1_stats['missing_starters'] = team1_missing
         team2_stats['missing_starters'] = team2_missing
 
+        time.sleep(2)
         team1_stats['starters'] = scrape_breference_starters(team1)
         pts_diff1 = 0
         ast_diff1 = 0
@@ -244,30 +245,27 @@ def predict_winner(request):
         fgpercent_diff2 = 0
         games_against = 0
         for starter in team1_stats['starters']:
-            time.sleep(4)
-            try:
+            time.sleep(1)
+            difference_team1 = difference_vs_opp(starter, city_to_full_name(team1), abbr_to_name(team2))
+            games_against = difference_team1['games']
+            pts_diff1 += difference_team1['points']
+            ast_diff1 += difference_team1['assists']
+            reb_diff1 += difference_team1['rebounds']
+            fgpercent_diff1 += difference_team1['fgpercent']
 
-                difference_team1 = difference_vs_opp(starter, abbr_to_name(team2))
-                games_against = difference_team1['games']
-                pts_diff1 += difference_team1['points']
-                ast_diff1 += difference_team1['assists']
-                reb_diff1 += difference_team1['rebounds']
-                fgpercent_diff1 += difference_team1['fgpercent']
-            except Exception as e:
-                print(f"❌ Error: {e}")
 
 
         for starter in team2_stats['starters']:
-            time.sleep(4)
-            try:
-                difference_team2 = difference_vs_opp(starter, abbr_to_name(team1))
-                pts_diff2 += difference_team2['points']
-                ast_diff2 += difference_team2['assists']
-                reb_diff2 += difference_team2['rebounds']
-                fgpercent_diff2 += difference_team2['fgpercent']
-            except Exception as e:
-                print(f"❌ Error: {e}")
+            time.sleep(1)
+            difference_team2 = difference_vs_opp(starter, city_to_full_name(team2), abbr_to_name(team1))
+            pts_diff2 += difference_team2['points']
+            last_diff2 += difference_team2['assists']
+            reb_diff2 += difference_team2['rebounds']
+            fgpercent_diff2 += difference_team2['fgpercent']
         
+        pts_diff1 /= 5
+        ast_diff1 /= 5
+        reb_diff1 /= 5
         if model and scaler:
             # Build season features (30 base features - WITHOUT injury counts)
             season_features = [

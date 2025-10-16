@@ -28,7 +28,6 @@ def scrape_espn_injuries():
             'Accept-Language': 'en-US,en;q=0.5',
         }
         
-        print(f"Fetching {url}...")
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         
@@ -92,9 +91,6 @@ def scrape_espn_injuries():
             
             if injuries:
                 injuries_by_team[team_abbr] = injuries
-                print(f"  ✅ {team_abbr}: {len(injuries)} injuries")
-            else:
-                print(f"  ⚠️ {team_abbr}: No injuries found")
         
         print(f"\n✅ Total: Scraped injuries for {len(injuries_by_team)} teams")
         return injuries_by_team
