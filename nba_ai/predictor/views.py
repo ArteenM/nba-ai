@@ -232,7 +232,6 @@ def predict_winner(request):
         team1_stats['missing_starters'] = team1_missing
         team2_stats['missing_starters'] = team2_missing
 
-        time.sleep(2)
         team1_stats['starters'] = scrape_breference_starters(team1)
         pts_diff1 = 0
         ast_diff1 = 0
@@ -245,7 +244,6 @@ def predict_winner(request):
         fgpercent_diff2 = 0
         games_against = 0
         for starter in team1_stats['starters']:
-            time.sleep(1)
             difference_team1 = difference_vs_opp(starter, city_to_full_name(team1), abbr_to_name(team2))
             games_against = difference_team1['games']
             pts_diff1 += difference_team1['points']
@@ -253,13 +251,10 @@ def predict_winner(request):
             reb_diff1 += difference_team1['rebounds']
             fgpercent_diff1 += difference_team1['fgpercent']
 
-
-
         for starter in team2_stats['starters']:
-            time.sleep(1)
             difference_team2 = difference_vs_opp(starter, city_to_full_name(team2), abbr_to_name(team1))
             pts_diff2 += difference_team2['points']
-            last_diff2 += difference_team2['assists']
+            ast_diff2 += difference_team2['assists']
             reb_diff2 += difference_team2['rebounds']
             fgpercent_diff2 += difference_team2['fgpercent']
         

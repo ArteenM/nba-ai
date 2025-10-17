@@ -165,8 +165,100 @@ def get_team_id(team_abbr):
     return None
 
 
+def calculate_team_stats_as_of_date(team_games, game_date, games_df, team_abbr):
+    """
+    Calculate team stats using only games BEFORE the given date
+    
+    Args:
+        team_games: All games for this team (sorted by date)
+        game_date: The date to calculate stats as of
+        games_df: All games in the season (for opponent points)
+        team_abbr: Team abbreviation
+    
+    Returns:
+        Dict with team stats as of that date
+    """
+    # Filter to only games BEFORE this game
+    prior_games = team_games[team_games['GAME_DATE'] < game_date].copy()
+    
+    if prior_games.empty:
+        # First game of season - return defaults
+        return {
+            'wins': 0,
+            'losses': 0,
+            'win_pct': 0.5,
+            'recent_win_pct': 0.5,
+            'avg_pts': 0,
+            'avg_pts_allowed': 0,
+            'avg_fg_pct': 0,
+            'avg_fg3_pct': 0,
+            'avg_ft_pct': 0,
+            'avg_off_reb': 0,
+            'avg_def_reb': 0,
+            'avg_turnovers': 0,
+            'assist_turnover_ratio': 0,
+            'current_streak': 0,
+        }
+    
+    # Calculate wins/losses up to this point
+    wins = (prior_games['WL'] == 'W').sum()
+    losses = (prior_games['WL'] == 'L').sum()
+    win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
+    
+    # Recent form (last 5 games before this one)
+    recent_games = prior_games.tail(5)
+    recent_wins = (recent_games['WL'] == 'W').sum()
+    recent_win_pct = recent_wins / len(recent_games) if len(recent_games) > 0 else 0.5
+    
+    # Averages from prior games only
+    avg_pts = prior_games['PTS'].mean() if not prior_games.empty else 0
+    
+    # Calculate points allowed from opponent scores
+    opp_pts_list = []
+    for game_id in prior_games['GAME_ID']:
+        game_rows = games_df[games_df['GAME_ID'] == game_id]
+        opp = game_rows[game_rows['TEAM_ABBREVIATION'] != team_abbr]
+        if not opp.empty:
+            opp_pts_list.append(opp.iloc[0]['PTS'])
+    avg_pts_allowed = np.mean(opp_pts_list) if opp_pts_list else 0
+    
+    # Shooting stats
+    avg_fg_pct = prior_games['FG_PCT'].mean() if 'FG_PCT' in prior_games.columns else 0
+    avg_fg3_pct = prior_games['FG3_PCT'].mean() if 'FG3_PCT' in prior_games.columns else 0
+    avg_ft_pct = prior_games['FT_PCT'].mean() if 'FT_PCT' in prior_games.columns else 0
+    
+    # Rebounding
+    avg_off_reb = prior_games['OREB'].mean() if 'OREB' in prior_games.columns else 0
+    avg_def_reb = prior_games['DREB'].mean() if 'DREB' in prior_games.columns else 0
+    
+    # Ball control
+    avg_turnovers = prior_games['TOV'].mean() if 'TOV' in prior_games.columns else 0
+    avg_assists = prior_games['AST'].mean() if 'AST' in prior_games.columns else 0
+    assist_turnover_ratio = avg_assists / avg_turnovers if avg_turnovers > 0 else 0
+    
+    # Current streak as of this date
+    current_streak = calculate_streak(prior_games)
+    
+    return {
+        'wins': int(wins),
+        'losses': int(losses),
+        'win_pct': float(win_pct),
+        'recent_win_pct': float(recent_win_pct),
+        'avg_pts': float(avg_pts),
+        'avg_pts_allowed': float(avg_pts_allowed),
+        'avg_fg_pct': float(avg_fg_pct),
+        'avg_fg3_pct': float(avg_fg3_pct),
+        'avg_ft_pct': float(avg_ft_pct),
+        'avg_off_reb': float(avg_off_reb),
+        'avg_def_reb': float(avg_def_reb),
+        'avg_turnovers': float(avg_turnovers),
+        'assist_turnover_ratio': float(assist_turnover_ratio),
+        'current_streak': int(current_streak),
+    }
+
+
 def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
-    """Efficiently collect all game data with extended stats including matchup data"""
+    """Efficiently collect all game data with progressive stats"""
     all_training_data = []
     
     for season in seasons:
@@ -193,71 +285,21 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
         all_logs['Game_ID'] = all_logs['GAME_ID'].astype(str)
         all_logs['GAME_DATE'] = pd.to_datetime(all_logs['GAME_DATE'])
         
-        # Calculate team stats
-        print("Calculating team statistics...")
-        team_stats = {}
+        # Pre-sort all team games for efficiency
+        print("Preparing team game histories...")
+        team_games_dict = {}
         team_lineups = {}
         
         for team_abbr in games_df['TEAM_ABBREVIATION'].unique():
             team_id = get_team_id(team_abbr)
             team_lineups[team_abbr] = get_main_lineup_by_minutes(logs, team_id)
+            
             team_games = games_df[games_df['TEAM_ABBREVIATION'] == team_abbr].copy()
             team_games = team_games.sort_values('GAME_DATE')
-            
-            wins = (team_games['WL'] == 'W').sum()
-            losses = (team_games['WL'] == 'L').sum()
-            win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0
-            
-            recent_games = team_games.sort_values('GAME_DATE', ascending=False).head(5)
-            recent_wins = (recent_games['WL'] == 'W').sum()
-            recent_win_pct = recent_wins / 5 if len(recent_games) == 5 else (
-                recent_wins / len(recent_games) if len(recent_games) > 0 else 0)
-            
-            avg_pts = safe_mean(team_games, 'PTS')
-            
-            opp_pts_list = []
-            for game_id in team_games['GAME_ID']:
-                game_rows = games_df[games_df['GAME_ID'] == game_id]
-                opp = game_rows[game_rows['TEAM_ABBREVIATION'] != team_abbr]
-                if not opp.empty:
-                    opp_pts_list.append(opp.iloc[0]['PTS'])
-            avg_pts_allowed = np.mean(opp_pts_list) if opp_pts_list else 0
-            
-            avg_fg_pct = safe_mean(team_games, 'FG_PCT')
-            avg_fg3_pct = safe_mean(team_games, 'FG3_PCT')
-            avg_ft_pct = safe_mean(team_games, 'FT_PCT')
-            avg_off_reb = safe_mean(team_games, 'OREB')
-            avg_def_reb = safe_mean(team_games, 'DREB')
-            avg_turnovers = safe_mean(team_games, 'TOV')
-            avg_assists = safe_mean(team_games, 'AST')
-            assist_turnover_ratio = avg_assists / avg_turnovers if avg_turnovers > 0 else 0
-            
-            team_games['days_since_last_game'] = team_games['GAME_DATE'].diff().dt.days
-            back_to_back_count = (team_games['days_since_last_game'] == 1).sum()
-            back_to_back_pct = back_to_back_count / len(team_games) if len(team_games) > 0 else 0
-            current_streak = calculate_streak(team_games)
-            
-            team_stats[team_abbr] = {
-                'wins': wins,
-                'losses': losses,
-                'win_pct': win_pct,
-                'recent_win_pct': recent_win_pct,
-                'avg_pts': avg_pts,
-                'avg_pts_allowed': avg_pts_allowed,
-                'avg_fg_pct': avg_fg_pct,
-                'avg_fg3_pct': avg_fg3_pct,
-                'avg_ft_pct': avg_ft_pct,
-                'avg_off_reb': avg_off_reb,
-                'avg_def_reb': avg_def_reb,
-                'avg_turnovers': avg_turnovers,
-                'assist_turnover_ratio': assist_turnover_ratio,
-                'back_to_back_count': back_to_back_count,
-                'back_to_back_pct': back_to_back_pct,
-                'current_streak': current_streak,
-            }
+            team_games_dict[team_abbr] = team_games
         
         # Process games
-        print("Matching up teams per game and calculating matchup stats...")
+        print("Processing games with progressive stats...")
         grouped = games_df.groupby('GAME_ID')
         games_processed = 0
         
@@ -273,10 +315,25 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
             team2_abbr = team2['TEAM_ABBREVIATION']
             game_date = team1['GAME_DATE']
             
+            # Calculate stats AS OF this game date (using only prior games)
+            team1_stats = calculate_team_stats_as_of_date(
+                team_games_dict[team1_abbr], 
+                game_date, 
+                games_df, 
+                team1_abbr
+            )
+            
+            team2_stats = calculate_team_stats_as_of_date(
+                team_games_dict[team2_abbr], 
+                game_date, 
+                games_df, 
+                team2_abbr
+            )
+            
+            # Calculate matchup stats (only using games before this date)
             team1_main_starters = team_lineups[team1_abbr]
             team2_main_starters = team_lineups[team2_abbr]
             
-            # Calculate matchup stats for each team's lineup
             team1_matchup_stats = aggregate_lineup_matchup_stats(
                 team1_main_starters, all_logs, team2_abbr, game_date
             )
@@ -298,15 +355,14 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 if player_missed_game(player_log_df, game_id):
                     team2_missing_starters.append(starter['PLAYER_NAME'])
             
-            team1_stats = team_stats[team1_abbr]
-            team2_stats = team_stats[team2_abbr]
-            
+            # Home/Away
             team1_home = 1 if '@' not in team1['MATCHUP'] else 0
             team2_home = 1 if '@' not in team2['MATCHUP'] else 0
             
-            # Back-to-back logic
-            team1_games_sorted = games_df[games_df['TEAM_ABBREVIATION'] == team1_abbr].sort_values('GAME_DATE')
-            team1_prev_games = team1_games_sorted[team1_games_sorted['GAME_DATE'] < game_date]
+            # Days rest and back-to-back
+            team1_prev_games = team_games_dict[team1_abbr][
+                team_games_dict[team1_abbr]['GAME_DATE'] < game_date
+            ]
             
             team1_is_back_to_back = 0
             team1_days_rest = 0
@@ -317,8 +373,9 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 if days_diff == 1:
                     team1_is_back_to_back = 1
             
-            team2_games_sorted = games_df[games_df['TEAM_ABBREVIATION'] == team2_abbr].sort_values('GAME_DATE')
-            team2_prev_games = team2_games_sorted[team2_games_sorted['GAME_DATE'] < game_date]
+            team2_prev_games = team_games_dict[team2_abbr][
+                team_games_dict[team2_abbr]['GAME_DATE'] < game_date
+            ]
             
             team2_is_back_to_back = 0
             team2_days_rest = 0
@@ -329,34 +386,11 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 if days_diff == 1:
                     team2_is_back_to_back = 1
             
-            # Streak calculations
-            team1_prev_results = team1_prev_games['WL'].tolist()
-            team1_current_streak = 0
-            if team1_prev_results:
-                last_result = team1_prev_results[-1]
-                streak = 1
-                for i in range(len(team1_prev_results) - 2, -1, -1):
-                    if team1_prev_results[i] == last_result:
-                        streak += 1
-                    else:
-                        break
-                team1_current_streak = streak if last_result == 'W' else -streak
-            
-            team2_prev_results = team2_prev_games['WL'].tolist()
-            team2_current_streak = 0
-            if team2_prev_results:
-                last_result = team2_prev_results[-1]
-                streak = 1
-                for i in range(len(team2_prev_results) - 2, -1, -1):
-                    if team2_prev_results[i] == last_result:
-                        streak += 1
-                    else:
-                        break
-                team2_current_streak = streak if last_result == 'W' else -streak
-            
             all_training_data.append({
                 'team1_abbr': team1_abbr,
                 'team2_abbr': team2_abbr,
+                
+                # Team 1 stats (as of this game date)
                 'team1_wins': team1_stats['wins'],
                 'team1_losses': team1_stats['losses'],
                 'team1_win_pct': team1_stats['win_pct'],
@@ -373,16 +407,15 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 'team1_home': team1_home,
                 'team1_back_to_back': team1_is_back_to_back,
                 'team1_days_rest': team1_days_rest,
-                'team1_streak': team1_current_streak,
+                'team1_streak': team1_stats['current_streak'],
                 'team1_missing_starters': ', '.join(team1_missing_starters),
-                
-                # NEW: Team1 matchup stats
                 'team1_lineup_pts_diff_vs_opp': team1_matchup_stats['avg_pts_diff'],
                 'team1_lineup_reb_diff_vs_opp': team1_matchup_stats['avg_reb_diff'],
                 'team1_lineup_ast_diff_vs_opp': team1_matchup_stats['avg_ast_diff'],
                 'team1_lineup_fg_pct_diff_vs_opp': team1_matchup_stats['avg_fg_pct_diff'],
                 'team1_lineup_vs_opp_games': team1_matchup_stats['total_vs_opp_games'],
                 
+                # Team 2 stats (as of this game date)
                 'team2_wins': team2_stats['wins'],
                 'team2_losses': team2_stats['losses'],
                 'team2_win_pct': team2_stats['win_pct'],
@@ -399,16 +432,15 @@ def collect_all_games_efficient(seasons=['2023-24', '2024-25']):
                 'team2_home': team2_home,
                 'team2_back_to_back': team2_is_back_to_back,
                 'team2_days_rest': team2_days_rest,
-                'team2_streak': team2_current_streak,
+                'team2_streak': team2_stats['current_streak'],
                 'team2_missing_starters': ', '.join(team2_missing_starters),
-                
-                # NEW: Team2 matchup stats
                 'team2_lineup_pts_diff_vs_opp': team2_matchup_stats['avg_pts_diff'],
                 'team2_lineup_reb_diff_vs_opp': team2_matchup_stats['avg_reb_diff'],
                 'team2_lineup_ast_diff_vs_opp': team2_matchup_stats['avg_ast_diff'],
                 'team2_lineup_fg_pct_diff_vs_opp': team2_matchup_stats['avg_fg_pct_diff'],
                 'team2_lineup_vs_opp_games': team2_matchup_stats['total_vs_opp_games'],
                 
+                # Game outcome
                 'team1_score': int(team1['PTS']),
                 'team2_score': int(team2['PTS']),
                 'winner': 1 if team1['WL'] == 'W' else 0,

@@ -86,7 +86,7 @@ def scrape_breference_starters(team_abbr):
     Scrapes Basketball Reference for the 2025 (or 2024) season
     and returns the team's starting 5 player names.
     """
-    time.sleep(2)
+    time.sleep(4)
     url = f"https://www.basketball-reference.com/teams/{team_abbr}/2025.html#all_totals_stats"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -123,10 +123,8 @@ def scrape_breference_stats(player_name, team):
     """
 
  # Boston, Toronto, etc...
-    time.sleep(2)
+    time.sleep(4)
     url = find_player_variations(player_name, team)
-
-    print(url)
     
     if not url:
         return None
@@ -194,30 +192,40 @@ def scrape_breference_stats(player_name, team):
 
 def find_player_variations(player_name, team):
     """Try different URL variations (01-09)"""
-    for suffix in range(1, 10):
-        url = build_bref_url(player_name, suffix)
-        if not url:
-            continue
-        
-        print(f"\nTrying: {url}")
-        
-        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        html = urlopen(req, timeout=5)
-        
-        # Check if we got a valid page
-        soup = BeautifulSoup(html, 'html.parser')
-        media = soup.find_all('div', id='meta')
-        for cell in media:
-            name = cell.find_all('p')
-            for j in name:
-                a_href = j.find('a')
-                if (a_href):
-                    team_name = a_href.get_text(strip=True)
-                    if (team == team_name):
-                        return url
+    url = build_bref_url(player_name)
+    print('OG URL: ', url)
+    try:
 
-    
-    return None
+        for suffix in range(1, 10):
+            prev_url = url
+            url = build_bref_url(player_name, suffix)
+            if not url:
+                continue
+            time.sleep(4)
+            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            try: 
+                html = urlopen(req, timeout=5)
+            except:
+                return prev_url
+            
+            # Check if we got a valid page
+            soup = BeautifulSoup(html, 'html.parser')
+            media = soup.find_all('div', id='meta')
+            for cell in media:
+                name = cell.find_all('p')
+                if (name):
+                    for j in name:
+                        a_href = j.find('a')
+                        if (a_href):
+                            team_name = a_href.get_text(strip=True)
+                            if (team == team_name):
+                                print('UPDATED URL: ', url)
+                                return url
+        return url
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+        return url
 
 
 def abbr_to_name(team_abbr):
@@ -337,7 +345,7 @@ def scrape_breference_stats_vs_team(player_name, team_name, opp_team_name):
     # Toronto
     # Utah
     # Washington
-    time.sleep(2)
+    time.sleep(4)
     url = find_player_variations(player_name, team_name)
     url = url.replace('.html', '/splits/2025')
     
@@ -405,6 +413,7 @@ def scrape_breference_stats_vs_team(player_name, team_name, opp_team_name):
 def difference_vs_opp(player_name, team_name, opp_team_name):
     full_name = abbr_to_name(team_name) # Full name of own team
     team_name = city_to_full_name(full_name)
+    time.sleep(4)
     player_stats = scrape_breference_stats(player_name, team_name)
     player_vs_team_stats = scrape_breference_stats_vs_team(player_name, team_name, opp_team_name)
     
@@ -434,5 +443,4 @@ if __name__ == "__main__":
     player = 'Lebron James'
     team = 'Los Angeles Lakers'
     stats = scrape_breference_stats_vs_team(player, team, "Boston")
-    print(stats)
 

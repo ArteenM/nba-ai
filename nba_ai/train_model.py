@@ -21,20 +21,26 @@ def add_matchup_stats(df):
     df['team1_matchup_wins'] = 0
     df['team2_matchup_wins'] = 0
     df['matchup_total_games'] = 0
+    df['game_date'] = pd.to_datetime(df['game_date'])
+    df = df.sort_values('game_date').reset_index(drop=True)
 
     for idx, row in df.iterrows():
         team1 = row['team1_abbr']
         team2 = row['team2_abbr']
+        game_date = row['game_date']
 
-        matchups = df[
+        prior_matchups = df[
+        (df['game_date'] < game_date) &  # ✅ Only prior games
+        (
             ((df['team1_abbr'] == team1) & (df['team2_abbr'] == team2)) |
             ((df['team1_abbr'] == team2) & (df['team2_abbr'] == team1))
-        ]
+        )
+]
 
         team1_wins = 0
         team2_wins = 0
 
-        for _, game in matchups.iterrows():
+        for _, game in prior_matchups.iterrows():
             if game['team1_abbr'] == team1:
                 if game['winner'] == 1:
                     team1_wins += 1
@@ -48,7 +54,7 @@ def add_matchup_stats(df):
 
         df.at[idx, 'team1_matchup_wins'] = team1_wins
         df.at[idx, 'team2_matchup_wins'] = team2_wins
-        df.at[idx, 'matchup_total_games'] = len(matchups)
+        df.at[idx, 'matchup_total_games'] = len(prior_matchups)
 
         if idx % 500 == 0:
             print(f"  Processed {idx}/{len(df)} games...")
@@ -211,9 +217,6 @@ if __name__ == "__main__":
 
     print("\n" + "="*60)
     print("TOP 30 MOST IMPORTANT FEATURES:")
-    print("="*60)
-    for idx, row in feature_importance_df.head(30).iterrows():
-        print(f"{row['feature']:50s} {row['importance']:.4f}")
     
     # Analyze matchup stat importance
     matchup_features = [
@@ -229,14 +232,6 @@ if __name__ == "__main__":
     ].sort_values(by='importance', ascending=False)
     
     print("\n" + "="*60)
-    print("PLAYER MATCHUP FEATURE IMPORTANCE:")
-    print("="*60)
-    for idx, row in matchup_importance.iterrows():
-        print(f"{row['feature']:50s} {row['importance']:.4f}")
-    
-    total_matchup_importance = matchup_importance['importance'].sum()
-    print(f"\nTotal matchup features importance: {total_matchup_importance:.4f}")
-    print(f"Percentage of total model: {total_matchup_importance*100:.2f}%")
 
     # Save feature names for prediction script
     with open('injury_columns.json', 'w') as f:
